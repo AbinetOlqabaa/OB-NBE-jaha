@@ -6,6 +6,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import dotenv from 'dotenv';
 import { getAllReports, getReportByKey } from './src/data/report-registry.ts';
 import { submissionService, DEMO_USERS } from './src/services/submissionService.ts';
@@ -518,23 +519,68 @@ app.delete('/api/users/:id/special-access/:grantId', (req, res) => {
 });
 
 // -------------------------------------------------------------
-// NBE SIMULATOR ROUTES
+// NBE GATEWAY / SIMULATOR ADAPTER ROUTES
+// Proxies OB frontend requests to the independent Django NBE Simulator microservice (port 8001)
 // -------------------------------------------------------------
 
-app.get('/api/nbe-simulator/submissions', (req, res) => {
+const DJANGO_SIMULATOR_URL = process.env.NBE_SIMULATOR_URL || 'http://127.0.0.1:8001/api/v1/nbe-simulator';
+
+app.get('/api/nbe-simulator/submissions', async (req, res) => {
+  try {
+    const limit = req.query.limit || '100';
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/submissions?limit=${limit}`);
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
+      return;
+    }
+  } catch (err) {
+    // Graceful fallback to local buffer if Django simulator is offline
+  }
   res.json(nbeSimulator.getSubmissions());
 });
 
-app.get('/api/nbe-simulator/logs', (req, res) => {
+app.get('/api/nbe-simulator/logs', async (req, res) => {
+  try {
+    const limit = req.query.limit || '100';
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/logs?limit=${limit}`);
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
+      return;
+    }
+  } catch (err) {
+    // Graceful fallback
+  }
   res.json(nbeSimulator.getLogs());
 });
 
-app.delete('/api/nbe-simulator/logs', (req, res) => {
+app.delete('/api/nbe-simulator/logs', async (req, res) => {
   nbeSimulator.clearLogs();
+  try {
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/logs`, { method: 'DELETE' });
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
+      return;
+    }
+  } catch (err) {
+    // Fallback
+  }
   res.json({ message: 'Logs cleared' });
 });
 
-app.get('/api/nbe-simulator/gateway-health', (req, res) => {
+app.get('/api/nbe-simulator/gateway-health', async (req, res) => {
+  try {
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/gateway-health`);
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
+      return;
+    }
+  } catch (err) {
+    // Fallback
+  }
   const scenario = nbeSimulator.getScenario();
   const isHealthy = scenario.mode !== 'SERVER_ERROR' && scenario.mode !== 'TIMEOUT';
   const status = (scenario.mode === 'SERVER_ERROR' || scenario.mode === 'TIMEOUT')
@@ -558,20 +604,62 @@ app.get('/api/nbe-simulator/gateway-health', (req, res) => {
   });
 });
 
-app.get('/api/nbe-simulator/scenario', (req, res) => {
+app.get('/api/nbe-simulator/scenario', async (req, res) => {
+  try {
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/scenario`);
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
+      return;
+    }
+  } catch (err) {
+    // Fallback
+  }
   res.json(nbeSimulator.getScenario());
 });
 
-app.post('/api/nbe-simulator/scenario', (req, res) => {
-  const updated = nbeSimulator.setScenario(req.body);
-  res.json(updated);
+app.post('/api/nbe-simulator/scenario', async (req, res) => {
+  const updatedLocal = nbeSimulator.setScenario(req.body);
+  try {
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/scenario`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      res.json(data);
+      return;
+    }
+  } catch (err) {
+    // Fallback
+  }
+  res.json(updatedLocal);
 });
 
 // Simulator HTTP Intake Endpoint
 app.post('/api/nbe-simulator/submit', async (req, res) => {
   const headers = req.headers as Record<string, string>;
-  const result = await nbeSimulator.processSubmission(req.body, headers);
-  res.status(result.statusCode).json(result.body);
+  try {
+    const forwardHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    for (const h of ['idempotency-key', 'x-correlation-id', 'x-institution-code', 'authorization', 'x-simulator-force-scenario']) {
+      if (headers[h]) forwardHeaders[h] = headers[h];
+    }
+    const response = await fetch(`${DJANGO_SIMULATOR_URL}/submit`, {
+      method: 'POST',
+      headers: forwardHeaders,
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+    return;
+  } catch (err) {
+    // Fallback to local in-memory simulation
+    const result = await nbeSimulator.processSubmission(req.body, headers);
+    res.status(result.statusCode).json(result.body);
+  }
 });
 
 // -------------------------------------------------------------
@@ -689,7 +777,32 @@ app.get('/api/health', (req, res) => {
 // DEV / PROD SERVER BOOTSTRAP
 // -------------------------------------------------------------
 
+function ensureDjangoSimulatorRunning() {
+  const checkUrl = 'http://127.0.0.1:8001/api/v1/nbe-simulator/gateway-health';
+  fetch(checkUrl, { signal: AbortSignal.timeout(1500) })
+    .then((r) => {
+      if (r.ok) {
+        console.log('[NBE Simulator Service] Microservice active on port 8001.');
+      }
+    })
+    .catch(() => {
+      console.log('[NBE Simulator Service] Launching independent Django service on port 8001...');
+      try {
+        const proc = spawn('python3', ['nbe_simulator_service/manage.py', 'runserver', '127.0.0.1:8001', '--noreload'], {
+          detached: true,
+          stdio: 'ignore',
+          cwd: __dirname,
+        });
+        proc.unref();
+      } catch (e: any) {
+        console.warn('[NBE Simulator Service] Auto-spawn notice:', e.message);
+      }
+    });
+}
+
 async function startServer() {
+  ensureDjangoSimulatorRunning();
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
