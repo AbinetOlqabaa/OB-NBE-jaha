@@ -12,6 +12,7 @@ import { getAllReports, getReportByKey } from './src/data/report-registry.ts';
 import { submissionService, DEMO_USERS } from './src/services/submissionService.ts';
 import { nbeSimulator } from './src/services/nbeSimulator.ts';
 import { auditService } from './src/services/auditService.ts';
+import { auditorService } from './src/services/auditorService.ts';
 import { ExcelService } from './src/utils/excelService.ts';
 import { Phase2Pipeline } from './src/services/phase2Pipeline.ts';
 import { userService } from './src/services/userService.ts';
@@ -516,6 +517,112 @@ app.delete('/api/users/:id/special-access/:grantId', (req, res) => {
   } else {
     res.status(400).json(result);
   }
+});
+
+// -------------------------------------------------------------
+// FIRST-CLASS AUDITOR & COMPLIANCE WORKFLOW ENDPOINTS
+// -------------------------------------------------------------
+
+// Auditor Work Queue
+app.get(['/api/audit/work-queue', '/api/v1/audit/work-queue'], (req, res) => {
+  const queue = auditorService.getWorkQueue({
+    department: (req.query.department as string) || undefined,
+    submissionStatus: (req.query.status as string) || undefined,
+    search: (req.query.search as string) || undefined,
+  });
+  res.json({
+    summary: auditorService.getKpiSummary(),
+    queue,
+  });
+});
+
+// Audit Findings
+app.get(['/api/audit/findings', '/api/v1/audit/findings'], (req, res) => {
+  const findings = auditorService.getFindings({
+    severity: req.query.severity as any,
+    status: req.query.status as any,
+    department: req.query.department as any,
+  });
+  res.json(findings);
+});
+
+app.post(['/api/audit/findings', '/api/v1/audit/findings'], (req, res) => {
+  const { user, ...findingData } = req.body;
+  if (user && user.role !== 'AUDITOR' && user.role !== 'ADMIN') {
+    res.status(403).json({ error: "Only AUDITOR or ADMIN roles can create audit findings." });
+    return;
+  }
+  const finding = auditorService.createFinding({
+    ...findingData,
+    auditorId: user?.id || 'usr_auditor_1',
+    auditorName: user?.name || 'Compliance Auditor',
+  });
+  res.status(201).json(finding);
+});
+
+app.patch(['/api/audit/findings/:id', '/api/v1/audit/findings/:id'], (req, res) => {
+  const updated = auditorService.updateFinding(req.params.id, req.body);
+  if (updated) {
+    res.json(updated);
+  } else {
+    res.status(404).json({ error: 'Finding not found' });
+  }
+});
+
+// Evidence Management
+app.get(['/api/audit/evidence', '/api/v1/audit/evidence'], (req, res) => {
+  const evidences = auditorService.getEvidence(req.query.reportKey as string, req.query.submissionId as string);
+  res.json(evidences);
+});
+
+app.post(['/api/audit/evidence', '/api/v1/audit/evidence'], async (req, res) => {
+  const evidence = await auditorService.attachEvidence(req.body);
+  res.status(201).json(evidence);
+});
+
+// Audit Working Papers / Notes
+app.get(['/api/audit/notes', '/api/v1/audit/notes'], (req, res) => {
+  const notes = auditorService.getWorkingNotes(req.query.reportKey as string, req.query.submissionId as string);
+  res.json(notes);
+});
+
+app.post(['/api/audit/notes', '/api/v1/audit/notes'], (req, res) => {
+  const note = auditorService.addWorkingNote(req.body);
+  res.status(201).json(note);
+});
+
+// Remediation Action Tracking
+app.get(['/api/audit/remediations', '/api/v1/audit/remediations'], (req, res) => {
+  const rems = auditorService.getRemediations(req.query.findingId as string);
+  res.json(rems);
+});
+
+app.post(['/api/audit/remediations', '/api/v1/audit/remediations'], (req, res) => {
+  const rem = auditorService.createRemediation(req.body);
+  res.status(201).json(rem);
+});
+
+app.patch(['/api/audit/remediations/:id', '/api/v1/audit/remediations/:id'], (req, res) => {
+  const { verifiedBy, status: remStatus, remediationProof, ...rest } = req.body;
+  let updated;
+  if (remStatus === 'VERIFIED_BY_AUDITOR') {
+    updated = auditorService.verifyRemediationByAuditor(req.params.id, verifiedBy || 'Compliance Auditor', remediationProof);
+  } else {
+    updated = auditorService.updateRemediation(req.params.id, { status: remStatus, remediationProof, ...rest });
+  }
+  if (updated) res.json(updated);
+  else res.status(404).json({ error: 'Remediation not found' });
+});
+
+// Formal Audit Report Export
+app.post(['/api/audit/reports/export', '/api/v1/audit/reports/export'], (req, res) => {
+  const pkg = auditorService.generateAuditReport({
+    period: req.body.period || 'Q1 2026',
+    scopeDepartments: req.body.scopeDepartments || [],
+    executiveSummary: req.body.executiveSummary,
+    generatedBy: req.body.generatedBy || 'Compliance Internal Audit Directorate',
+  });
+  res.status(201).json(pkg);
 });
 
 // -------------------------------------------------------------

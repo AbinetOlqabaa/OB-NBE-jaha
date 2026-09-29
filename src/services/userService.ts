@@ -48,6 +48,8 @@ export interface UserAccount {
   approvedAt?: string;
   approvedBy?: string;
   lastLoginAt?: string;
+  auditorJustification?: string;
+  auditScope?: string;
 }
 
 /**
@@ -324,13 +326,15 @@ class UserServiceClass {
     department: string;
     employeeId: string;
     phoneNumber?: string;
+    auditorJustification?: string;
+    auditScope?: string;
   }): { success: boolean; user?: UserAccount; message?: string } {
     if (!data.name || !data.email) {
       return { success: false, message: 'Full name and email address are required.' };
     }
 
-    if (!data.role || (data.role !== 'MAKER' && data.role !== 'CHECKER')) {
-      return { success: false, message: 'Registration role must be either MAKER or CHECKER.' };
+    if (!data.role || (data.role !== 'MAKER' && data.role !== 'CHECKER' && data.role !== 'AUDITOR')) {
+      return { success: false, message: 'Registration role must be MAKER, CHECKER, or AUDITOR.' };
     }
 
     if (!data.department) {
@@ -354,6 +358,8 @@ class UserServiceClass {
       department: data.department.trim(),
       employeeId: data.employeeId || `OB-${Math.floor(100 + Math.random() * 900)}`,
       phoneNumber: data.phoneNumber || '',
+      auditorJustification: data.auditorJustification,
+      auditScope: data.auditScope || (data.role === 'AUDITOR' ? 'ALL_DEPARTMENTS' : undefined),
       specialAccessGrants: [],
       createdAt: new Date().toISOString(),
     };
@@ -414,7 +420,7 @@ class UserServiceClass {
     let redirectTab = 'MAKER_WORKSPACE';
     if (user.role === 'ADMIN') redirectTab = 'ADMIN_DASHBOARD';
     else if (user.role === 'CHECKER') redirectTab = 'CHECKER_INBOX';
-    else if (user.role === 'AUDITOR') redirectTab = 'AUDIT_TRAIL';
+    else if (user.role === 'AUDITOR') redirectTab = 'AUDITOR_DASHBOARD';
     else if (user.role === 'MAKER') redirectTab = 'MAKER_WORKSPACE';
 
     const { password: pw, ...safe } = user;
@@ -636,7 +642,7 @@ class UserServiceClass {
     let redirectTab = 'MAKER_WORKSPACE';
     if (user.role === 'ADMIN') redirectTab = 'ADMIN_DASHBOARD';
     else if (user.role === 'CHECKER') redirectTab = 'CHECKER_INBOX';
-    else if (user.role === 'AUDITOR') redirectTab = 'AUDIT_TRAIL';
+    else if (user.role === 'AUDITOR') redirectTab = 'AUDITOR_DASHBOARD';
     else if (user.role === 'MAKER') redirectTab = 'MAKER_WORKSPACE';
 
     const { password: pw, ...safe } = user;
@@ -680,6 +686,13 @@ class UserServiceClass {
 
     const { password, ...safe } = user;
     return { success: true, user: safe as UserAccount };
+  }
+
+  public authorizeUser(
+    userId: string,
+    adminName: string
+  ): { success: boolean; user?: UserAccount; message?: string } {
+    return this.updateUserStatus(userId, 'ACTIVE', adminName);
   }
 
   public updateUser(

@@ -47,6 +47,7 @@ export function getRoleTabs(userRole?: string): ViewTab[] {
       return [
         'ADMIN_DASHBOARD',
         'DEPT_REPORT_MANAGEMENT',
+        'AUDITOR_DASHBOARD',
         'MAKER_WORKSPACE',
         'CHECKER_INBOX',
         'NBE_SIMULATOR',
@@ -57,7 +58,7 @@ export function getRoleTabs(userRole?: string): ViewTab[] {
     case 'CHECKER':
       return ['CHECKER_INBOX', 'NBE_SIMULATOR', 'PHASE2_SSOT', 'AUDIT_TRAIL', 'DOCUMENTATION'];
     case 'AUDITOR':
-      return ['AUDIT_TRAIL', 'PHASE2_SSOT', 'DOCUMENTATION'];
+      return ['AUDITOR_DASHBOARD', 'AUDIT_TRAIL', 'PHASE2_SSOT', 'DOCUMENTATION'];
     case 'MAKER':
       return ['MAKER_WORKSPACE', 'PHASE2_SSOT', 'AUDIT_TRAIL', 'DOCUMENTATION'];
     default:

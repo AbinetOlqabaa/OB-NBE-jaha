@@ -16,6 +16,7 @@ import {
   HelpCircle,
   Menu,
   Activity,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface NavItem {
@@ -74,10 +75,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
     if (currentUser.role === 'AUDITOR') {
       return [
+        { id: 'AUDITOR_DASHBOARD' as ViewTab, label: 'Auditor', icon: ShieldAlert },
         { id: 'AUDIT_TRAIL' as ViewTab, label: 'Audit', icon: History },
         { id: 'PHASE2_SSOT' as ViewTab, label: 'SSOT Lake', icon: Database },
         { id: 'DOCUMENTATION' as ViewTab, label: 'NBE Docs', icon: HelpCircle },
-        { id: 'SYSTEM_HEALTH' as ViewTab, label: 'Health', icon: Activity },
       ];
     }
 

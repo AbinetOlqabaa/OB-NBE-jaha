@@ -1035,9 +1035,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{user.email}</div>
                     </td>
                     <td className="py-2.5 px-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          user.role === 'AUDITOR'
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
+                        }`}
+                      >
                         {user.role}
                       </span>
+                      {user.role === 'AUDITOR' && (user as any).auditScope && (
+                        <div className="text-[9px] text-slate-500 font-mono mt-0.5">Scope: {(user as any).auditScope}</div>
+                      )}
+                      {user.role === 'AUDITOR' && (user as any).auditorJustification && (
+                        <div className="text-[10px] text-slate-600 dark:text-slate-400 italic max-w-xs truncate mt-0.5" title={(user as any).auditorJustification}>
+                          "{(user as any).auditorJustification}"
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 px-3">
                       <span

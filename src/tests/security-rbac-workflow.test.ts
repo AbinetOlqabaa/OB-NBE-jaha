@@ -36,7 +36,7 @@ export async function runSecurityRbacWorkflowTests() {
 
   const loginAuditor = userService.login('auditor@oromiabank.com', 'password');
   assert(loginAuditor.success && loginAuditor.user?.role === 'AUDITOR', 'Auditor login succeeds');
-  assert(loginAuditor.redirectTab === 'AUDIT_TRAIL', 'Auditor redirects to AUDIT_TRAIL');
+  assert(loginAuditor.redirectTab === 'AUDITOR_DASHBOARD', 'Auditor redirects to dedicated AUDITOR_DASHBOARD');
 
   // Test 2: Invalid or missing password fails (no bypass)
   const loginBadPw = userService.login('admin@oromiabank.com', 'wrongpassword');

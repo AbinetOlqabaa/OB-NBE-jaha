@@ -21,6 +21,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { DepartmentReportManagement } from './components/DepartmentReportManagement';
 import { MakerWorkspace } from './components/MakerWorkspace';
 import { CheckerInbox } from './components/CheckerInbox';
+import { AuditorDashboard } from './components/AuditorDashboard';
 import { DynamicReportForm } from './components/DynamicReportForm';
 import { NbeSimulatorView } from './components/NbeSimulatorView';
 import { Phase2SSOTView } from './components/Phase2SSOTView';
@@ -77,7 +78,7 @@ export default function App() {
   const getInitialTabForRole = (role?: string): ViewTab => {
     if (role === 'ADMIN') return 'ADMIN_DASHBOARD';
     if (role === 'CHECKER') return 'CHECKER_INBOX';
-    if (role === 'AUDITOR') return 'AUDIT_TRAIL';
+    if (role === 'AUDITOR') return 'AUDITOR_DASHBOARD';
     return 'MAKER_WORKSPACE';
   };
 
@@ -681,6 +682,21 @@ export default function App() {
                   onSwitchUser={handleSwitchUserSession}
                   onArchiveSubmission={handleArchiveSubmission}
                   checkerUser={DEMO_USERS[2]}
+                />
+              )}
+
+              {activeTab === 'AUDITOR_DASHBOARD' && (
+                <AuditorDashboard
+                  currentUser={currentUser}
+                  onNavigateToReport={(reportKey) => {
+                    const t = getReportByKey(reportKey);
+                    if (t) {
+                      const sub = submissions.find((s) => s.reportKey === reportKey);
+                      if (sub) {
+                        setEditingSubmission(sub);
+                      }
+                    }
+                  }}
                 />
               )}
 

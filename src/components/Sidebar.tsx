@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Activity,
+  ShieldAlert,
 } from 'lucide-react';
 import { UserSession } from '../types/regulatory';
 import {
@@ -43,6 +44,7 @@ export type ViewTab =
   | 'DEPT_REPORT_MANAGEMENT'
   | 'MAKER_WORKSPACE'
   | 'CHECKER_INBOX'
+  | 'AUDITOR_DASHBOARD'
   | 'NBE_SIMULATOR'
   | 'PHASE2_SSOT'
   | 'AUDIT_TRAIL'
@@ -212,6 +214,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: pendingCheckerCount > 0 ? pendingCheckerCount : null,
       shortcut: `${modKey}+⇧+C`,
       roles: ['ADMIN', 'CHECKER'],
+    },
+    {
+      id: 'AUDITOR_DASHBOARD' as ViewTab,
+      label: 'Auditor Workspace',
+      shortLabel: 'Auditor',
+      icon: ShieldAlert,
+      description: 'Audit work queue, findings & evidence',
+      badge: null,
+      shortcut: `${modKey}+⇧+A`,
+      roles: ['ADMIN', 'AUDITOR'],
     },
     {
       id: 'NBE_SIMULATOR' as ViewTab,

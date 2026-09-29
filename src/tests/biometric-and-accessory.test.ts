@@ -406,8 +406,12 @@ export async function runBiometricAndAccessoryTests() {
   assert(typeof getRoleTabs === 'function', 'getRoleTabs utility exported as a function');
 
   const adminTabs = getRoleTabs('ADMIN');
-  assert(adminTabs.length === 8, 'Admin role has access to all 8 tabs');
+  assert(adminTabs.length === 9, 'Admin role has access to all 9 tabs including Auditor Dashboard');
   assert(adminTabs[0] === 'ADMIN_DASHBOARD', 'First admin tab is ADMIN_DASHBOARD');
+
+  const auditorTabs = getRoleTabs('AUDITOR');
+  assert(auditorTabs.length === 4, 'Auditor role has 4 core tabs (Auditor Dashboard, Audit Trail, SSOT, Docs)');
+  assert(auditorTabs[0] === 'AUDITOR_DASHBOARD', 'First auditor tab is AUDITOR_DASHBOARD');
 
   const makerTabs = getRoleTabs('MAKER');
   assert(makerTabs.length === 4, 'Maker role has 4 core tabs (Maker, SSOT, Audit, Docs)');

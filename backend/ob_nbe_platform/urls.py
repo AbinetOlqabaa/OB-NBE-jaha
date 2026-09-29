@@ -102,6 +102,8 @@ urlpatterns = [
     path('api/', include('apps.reports.urls')),
     path('api/', include('apps.workflows.urls')),
     path('api/', include('apps.audit.urls')),
+    path('api/audit/', include('apps.audit.urls')),
+    path('api/v1/audit/', include('apps.audit.urls')),
     path('api/', include('apps.notifications.urls')),
     path('api/', include('apps.nbe_gateway.urls')),
 ]

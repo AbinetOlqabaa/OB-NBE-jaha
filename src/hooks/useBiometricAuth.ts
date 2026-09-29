@@ -888,7 +888,7 @@ export function useBiometricAuth() {
       let redirectTab = verifyLocal.redirectTab || 'MAKER_WORKSPACE';
       if (userSession.role === 'ADMIN') redirectTab = 'ADMIN_DASHBOARD';
       else if (userSession.role === 'CHECKER') redirectTab = 'CHECKER_INBOX';
-      else if (userSession.role === 'AUDITOR') redirectTab = 'AUDIT_TRAIL';
+      else if (userSession.role === 'AUDITOR') redirectTab = 'AUDITOR_DASHBOARD';
       else if (userSession.role === 'MAKER') redirectTab = 'MAKER_WORKSPACE';
 
       vibrate([30, 45, 35]);

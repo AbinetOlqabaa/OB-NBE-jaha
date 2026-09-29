@@ -20,9 +20,9 @@ class WorkflowEngine:
 
     @classmethod
     def can_transition(cls, current_status: str, target_status: str, user, submission) -> tuple[bool, str]:
-        # Administrator role is strictly oversight - cannot change report workflow state
-        if getattr(user, 'role', '') == 'ADMIN':
-            return False, "Administrator role is restricted to compliance oversight per NBE directives. Operational transitions must be performed by authorized Makers and Checkers."
+        # Administrator & Auditor roles are strictly oversight - cannot change report workflow state
+        if getattr(user, 'role', '') in ('ADMIN', 'AUDITOR'):
+            return False, "Auditor and Administrator roles are restricted to compliance oversight per NBE directives and Abinet Alemu mandate. An Auditor does not gain Maker or Checker privileges."
 
         allowed_targets = cls.LEGAL_TRANSITIONS.get(current_status, [])
         if target_status not in allowed_targets:
