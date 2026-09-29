@@ -1,23 +1,121 @@
-# CURRENT IMPLEMENTATION STATUS & UI/UX RESPONSIVENESS AUDIT
+# CURRENT IMPLEMENTATION STATUS & RECOVERY ASSESSMENT
 **Application**: Oromia Bank NBE Regulatory Reporting Platform  
-**Authority**: National Bank of Ethiopia (Bank Supervision Directorate)  
-**Institution**: Oromia Bank S.C. (InstCode: `0000013`)  
-**Audit Reference**: `.ai/UI_UX_RESPONSIVENESS_AUDIT_AND_ENHANCEMENT.md`  
+**Compliance Authority**: National Bank of Ethiopia (Bank Supervision Directorate)  
+**Licensed Institution**: Oromia Bank S.C. (InstCode: `0000013`)  
+**Audit Reference**: `.ai/19_AUDITOR_ROLE_AND_AUDIT_WORKFLOW.md`  
 **Execution Date**: 2026-09-28  
 **Build Status**: ✅ PASSING (`compile_applet` / `npm run build` 100% clean)  
-**TypeScript Lint Status**: ✅ PASSING (`tsc --noEmit` 0 errors)  
-**Automated Test Runner**: ✅ PASSING (`npx tsx src/tests/run-all-tests.ts` 8/8 comprehensive test suites green)  
+**TypeScript Lint Status**: ✅ PASSING (`npm run lint` / `tsc --noEmit` 0 errors)  
+**Automated Test Runner**: ✅ PASSING (8/8 TypeScript test suites green + 11/11 Django simulator test cases green)  
 
 ---
 
-## 1. Executive Summary & Continuity Status
+## 1. Ten Recovery Assessment Inquiries
 
-The previous agent completed the functional foundations, biometric authentication, and offline IndexedDB caching. This execution phase continued from that verified state without restarting from scratch, completing:
-1. **Full Page & Component Inventory**: 16 components inspected across Mobile, Tablet, Laptop, and Desktop viewports.
-2. **Zero-Pill & Metadata Discipline Enforcement**: Removed all static capsule pills (`rounded-full`) across validation summaries, title tags, tab counters, and audit tags, replacing them with clean unboxed text and subtle typographic separators (`·`, `•`, `-`) in compliance with the Frontend Design Constitution.
-3. **Horizontal Page-Level Overflow Elimination**: Verified container math, `overflow-x-auto` table wrappers, and text truncation classes (`truncate`, `line-clamp-1`, `line-clamp-2`, `break-words`).
-4. **Touch Target Compliance**: Enforced `min-h-[44px]` and `min-w-[44px]` across mobile navigation controls, action buttons, and form inputs.
-5. **Automated Responsive UI & Layout Test Suite**: Implemented `src/tests/responsive-ui-and-layout.test.ts` verifying all 9 representative viewports (320px to 1920px), integrated into `run-all-tests.ts`.
+### 1. What is actually implemented
+- **Frontend (React 19 + TypeScript + Vite + Tailwind CSS v4)**:
+  - Complete navigation and design system compliant with the Frontend Design Constitution (zero-pill metadata discipline, responsive fluid containers, touch targets ≥ 44px).
+  - Authentication: `LoginPage.tsx` (password, test account reference, biometric verification) and `RegisterPage.tsx` (corporate email, OTP, department assignment, biometric enrollment).
+  - Workspaces:
+    - `MakerWorkspace.tsx`: Draft generation, Excel import/export (`ExcelService.ts`), live formula recalculation, validation engine, Checker submission.
+    - `CheckerInbox.tsx`: 4-eyes review, visual diff viewer, approval/rejection/correction workflows, NBE transmission gate.
+    - `AdminDashboard.tsx`: User approval workflow, user status management (`ACTIVE`, `PENDING_APPROVAL`, `DISABLED`), organizational department hierarchy, Special Access delegation matrix.
+    - `DynamicReportForm.tsx` & `DynamicAreaTable.tsx`: Full dynamic form and table rendering for all 24 NBE report templates with live AST calculation, validation summaries, and schedule grids.
+    - `AuditTrailView.tsx`: Append-only non-repudiation event ledger, filtering, biometric event inspection, JSON export.
+    - `NbeSimulatorView.tsx`: Central Bank telemetry console, scenario controls, raw payload inspector, latency tuning.
+    - `SystemHealthDashboard.tsx`: Diagnostic health metrics, mTLS status, service uptime, database health.
+    - `Phase2SSOTView.tsx`: Single Source of Truth 3-tier pipeline (Bronze/Silver/Gold), General Ledger reconciliation, data quality score.
+  - Offline capabilities: IndexedDB storage (`src/services/indexedDbStorage.ts`), background batch synchronization, cryptographic vault bundle for remote site visits.
+  - PDF Generation: `PdfGenerator.ts` generates tamper-sealed official NBE PDF returns with SHA-256 tamper seal.
+  - Automated tests: 8 comprehensive test suites in `src/tests/` (100% green).
+- **Backend (Express / Node.js - `server.ts`)**:
+  - Running on port 3000.
+  - REST endpoints for templates (`/api/regulatory/templates`), submissions (`/api/regulatory/submissions`), authentication (`/api/auth/*`), users (`/api/users`), departments (`/api/departments`), audit logs (`/api/audit-logs`), SSOT pipeline (`/api/phase2/*`), and NBE simulator reverse-proxy (`/api/nbe-simulator/*`).
+  - Auto-supervises the Django NBE Simulator on port 8001.
+- **Backend (Django Core - `/backend`)**:
+  - Full Django 5.2 project (`ob_nbe_platform`) with persistent SQLite database (`backend/db.sqlite3`).
+  - Core modular apps: `accounts`, `departments`, `permissions`, `reports`, `workflows`, `audit`, `notifications`, `nbe_gateway`.
+- **NBE Simulator Microservice (`/nbe_simulator_service`)**:
+  - Independent Django microservice (`simulator_project`) on dedicated port 8001 with persistent SQLite database (`simulator_db.sqlite3`).
+  - Models: `SimulatorScenario`, `SimulatorSubmission`, `SimulatorRequestLog`.
+  - Validates all 24 NBE statutory report definitions and checks institutional code `0000013`.
+  - 6 simulation modes: `ALWAYS_SUCCESS` (cryptographic receipt `NBE-REC-YYYYMMDD-XXXX`), `VALIDATION_ERROR` (422), `AUTH_FAILURE` (401), `TIMEOUT` (504), `SERVER_ERROR` (500), `RANDOM_FLAKY`.
+  - Idempotency support with `Idempotency-Key` deduplication.
+  - Deterministic test triggers via `X-Simulator-Force-Scenario` headers and query params.
+  - 11 unit tests in `apps.simulator.tests` (100% green).
+
+### 2. What is partially implemented
+- `AUDITOR` role exists in the user seed list (`auditor@oromiabank.com`) and as an enum choice in `UserAccount.ROLE_CHOICES` and `types/regulatory.ts`.
+- `AuditTrailView.tsx` displays audit logs with filtering and export, and `AdminDashboard.tsx` allows approving users (including Auditors).
+- In Django `AuthorizationEngine`, `AUDITOR` is granted read-only access to submissions, but there are no Auditor-specific workflows, no work queue, no audit findings, no finding severity/status, no audit notes, no evidence management, no remediation tracking, no audit reports, and no dedicated Auditor dashboard or routes.
+
+### 3. What is simulated
+- **Central Bank Physical Connection**: Real Central Bank submission requires a physical leased-line IPsec VPN tunnel and physical mTLS hardware smart cards from NBE; this is simulated via the independent Django NBE Simulator microservice (`/nbe_simulator_service` on port 8001).
+- **Face Biometrics**: Uses optical camera stream + HTML5 canvas pixel hash extraction (since browser WebAuthn does not natively provide raw facial recognition hardware access on standard web browsers).
+- **SMS/Email OTP Delivery**: OTP codes are generated, hashed, verified, and logged to the audit log/console without an active third-party telecom SMS gateway contract.
+
+### 4. What is missing (Specifically for the Auditor Role per 19_AUDITOR_ROLE_AND_AUDIT_WORKFLOW.md)
+- Dedicated Auditor Registration request flow and approval workflow in UI and backend (requesting specific audit oversight scopes, e.g., departmental internal audit vs compliance vs external NBE inspection).
+- Auditor authentication flow and landing experience.
+- Dedicated Auditor Dashboard (`AuditorDashboard.tsx`) with audit summary metrics (compliance rate, open findings, unreviewed submissions, risk exposure).
+- Audit Work Queue: Submissions pending audit review, completed reviews, flagged submissions.
+- Report Audit View: Deep inspection view for reports, allowing an auditor to inspect submitted figures, formulas, dynamic schedules, and comparison against historical periods.
+- Report Revision History & Workflow Timeline: Visual interactive timeline tracking Maker draft -> Checker review -> NBE transmission with timestamps, actors, and diffs.
+- Evidence Management: Ability to attach, catalog, view, and verify supporting audit evidence documents/files for return line items.
+- Audit Findings System: Creating, classifying, and managing audit findings with severity (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFORMATIONAL`) and status (`OPEN`, `UNDER_REVIEW`, `REMEDIATION_PENDING`, `CLOSED`).
+- Audit Notes & Comments: Contextual notes on line items or overall returns.
+- Remediation Tracking: Assigning remediation actions to Makers/Checkers/Department Heads with target deadlines and resolution logs.
+- Audit Reports Generator: Generating formal Audit Reports (PDF/printable) with findings summary, executive memo, and non-repudiation cryptographic stamp.
+- Filtering & Search across all audit entities.
+- Appropriate notifications for audit events (finding raised, remediation assigned, finding closed).
+- Django Auditor permission boundary enforcement: Ensuring Auditors have strict read-only access to report data and cannot transition submissions, edit figures, approve Maker drafts (strictly preventing Maker/Checker privilege escalation per Abinet Alemu's directive).
+- Dedicated routes, components, APIs, and automated test suite.
+
+### 5. Where the previous agent stopped
+- The previous agent successfully completed the NBE Simulator as an independent Django microservice (`/nbe_simulator_service`), configured its port (`8001`), database (`simulator_db.sqlite3`), endpoints, 6 simulation modes, idempotency, deterministic test headers, 24 report validations, Django unit tests, adapter proxying in `server.ts` and `gateway_service.py`, and comprehensive documentation in `.ai/NBE_SIMULATOR_AND_TEMPORARY_INTEGRATION.md`.
+- The user then deleted the placeholder `.ai/AUDITOR_ROLE_AND_AUDIT_WORKFLOW.md`, created `.ai/19_AUDITOR_ROLE_AND_AUDIT_WORKFLOW.md`, and requested the full recovery assessment before beginning Auditor implementation.
+
+### 6. Whether a Django backend exists
+- **YES, two distinct Django projects exist:**
+  1. **Oromia Bank Core Backend** (`/backend`): Django 5.2 application (`ob_nbe_platform`) with modular apps (`accounts`, `departments`, `permissions`, `reports`, `workflows`, `audit`, `notifications`, `nbe_gateway`).
+  2. **NBE Simulator Microservice** (`/nbe_simulator_service`): Independent Django microservice (`simulator_project`) on port 8001 with its own models (`SimulatorScenario`, `SimulatorSubmission`, `SimulatorRequestLog`), validator for all 24 NBE returns, and DRF REST API.
+
+### 7. Whether any backend/database is real or simulated
+- **Real SQLite Databases**:
+  - `backend/db.sqlite3`: Real SQLite database storing user accounts, departments, special access grants, reports, submissions, notifications, and audit logs.
+  - `nbe_simulator_service/simulator_db.sqlite3`: Real SQLite database storing received statutory submissions, simulation scenarios, and HTTP request/response audit logs.
+- **Real Browser Database**:
+  - `IndexedDB` (`OromiaBank_NBE_Regulatory_DB`): Real persistent client-side storage for offline field visit drafts, audit trails, and cryptographic export bundles.
+- **Simulated External Infrastructure**:
+  - The Central Bank's physical leased-line IPsec VPN and central bank datacenter server are simulated by the Django microservice on port 8001.
+
+### 8. How authentication currently works
+- Dual-layer authentication:
+  1. In Express (`server.ts` + `userService.ts`):
+     - Email/password authentication verified against user registry with BCrypt/SHA hashing.
+     - Status verification (`ACTIVE` allowed, `PENDING_APPROVAL` / `DISABLED` rejected).
+     - Biometric authentication: WebAuthn passkey credential lookup or camera Face ID hash comparison.
+     - OTP generation and verification for registration and password resets.
+  2. In Django (`backend/apps/accounts`):
+     - Custom `UserAccount` inheriting `AbstractBaseUser` and `PermissionsMixin`.
+     - `LoginView` at `/api/auth/login` checks corporate email, status, and password via `check_password()`.
+     - `BiometricCredential` model storing WebAuthn public keys, credential IDs, and face feature hashes.
+     - `SendOtpView`, `VerifyOtpView`, and `ResetPasswordView`.
+
+### 9. How biometric registration currently works
+- Users register biometrics either during registration (`RegisterPage.tsx`) or from user settings.
+- Two modes supported:
+  1. **Hardware WebAuthn Passkeys / Fingerprint**: `navigator.credentials.create()` generates cryptographic public key credentials; stored in `userService` and Django `BiometricCredential` model.
+  2. **Optical Camera Face ID**: Camera stream accessed via `navigator.mediaDevices.getUserMedia()`, captured to canvas, processed into an immutable feature vector/hash; stored in credentials list.
+- Zero bypass: Un-enrolled users attempting biometric login are rejected with clear error prompting password authentication.
+
+### 10. How NBE integration currently works
+- Workflow: Maker creates draft -> Checker approves return -> Maker/Checker clicks Deliver to NBE.
+- Adapter: `src/services/nbeAdapter.ts` and `backend/apps/nbe_gateway/gateway_service.py` serialize the return into canonical NBE statutory JSON (`ReturnKey`, `InstCode: '0000013'`, `FinYear`, `StartDate`, `EndDate`, `ReturnItemsList`, `DynamicItemsList`).
+- Transmission: Outbound HTTP POST to `NBE_GATEWAY_URL` (currently `http://127.0.0.1:8001/api/v1/nbe-simulator/submit`).
+- Resilience: Automatic retries with exponential backoff for HTTP 500/504 errors.
+- Receipt: Valid submissions receive an official cryptographic receipt `NBE-REC-YYYYMMDD-XXXX`.
+- Reverse Proxy: Frontend communicates only with the OB backend (port 3000), which proxies simulator controls/telemetry internally to port 8001.
 
 ---
 
@@ -40,57 +138,16 @@ The previous agent completed the functional foundations, biometric authenticatio
 
 ---
 
-## 3. Responsive Test Matrix Verification
-
-The automated test runner (`npx tsx src/tests/run-all-tests.ts`) validates the following 9 viewport classes:
-1. **Small Mobile (320 × 568)**: iPhone SE - single-column, bottom navigation, card views, compact headers.
-2. **Standard Mobile (390 × 844)**: iPhone 14/15 - full touch targets (≥44px), swipe gesture navigation active.
-3. **Large Mobile (430 × 932)**: iPhone Pro Max / Pixel 8 - comfortable typography scale, input accessory view.
-4. **Mobile Landscape (844 × 390)**: Landscape mobile - modal max-height with internal scroll, compact brand bar.
-5. **Tablet Portrait (768 × 1024)**: iPad Mini / Air - collapsible sidebar, 2-column dashboard grids.
-6. **Tablet Landscape (1024 × 768)**: iPad Pro 11 - full desktop sidebar, multi-column tables.
-7. **Laptop (1366 × 768)**: Compact desktop - full table visibility, top context ribbons.
-8. **Desktop Baseline (1440 × 900)**: Authoritative design baseline - 900px-1440px fluid container.
-9. **Large Desktop (1920 × 1080)**: Full HD widescreen - max-w-7xl bounded container, zero horizontal stretch.
-
----
-
-## 4. UI/UX Completion Gates (Per Section 39)
-
-- [x] **1. Every route has been inventoried** (16 major views and modal routes cataloged).
-- [x] **2. Every major page has been inspected** (Login, Register, Maker, Checker, Admin, Simulator, SSOT, Audit).
-- [x] **3. Every dashboard has been reviewed** (Card layouts, typography, hierarchy, responsive grids).
-- [x] **4. Shared components have been reviewed** (Navbar, Sidebar, BottomNavigation, Pagination, Modals).
-- [x] **5. Responsive foundations have been reviewed** (Fluid widths, CSS grid, container max-widths).
-- [x] **6. Mobile layouts have been tested** (320px, 390px, 430px, 844px landscape verified).
-- [x] **7. Tablet layouts have been tested** (768px portrait, 1024px landscape verified).
-- [x] **8. Desktop layouts have been tested** (1366px laptop, 1440px baseline, 1920px large verified).
-- [x] **9. Forms have been tested** (DynamicReportForm, RegisterPage, LoginPage, input accessory view).
-- [x] **10. Tables have been tested** (DynamicAreaTable dual card/table view, controlled overflow-x-auto).
-- [x] **11. Modals have been tested** (Shortcuts, CommandPalette, OfflineStorage, UserSettings, Diagnostics).
-- [x] **12. Navigation has been tested** (Sidebar collapse, bottom navigation bar, mobile drawer, swipe gestures).
-- [x] **13. Authentication screens have been tested** (Password, 1-click role switcher, OTP flow, reset modal).
-- [x] **14. Biometric screens have been tested** (WebAuthn passkey, optical camera Face ID with canvas hash).
-- [x] **15. Report screens have been tested** (All 24 canonical returns render dynamically with AST math).
-- [x] **16. Administrator pages have been tested** (User approvals, department hierarchy, special access).
-- [x] **17. Maker pages have been tested** (Draft creation, Excel import/export, submission gate).
-- [x] **18. Checker pages have been tested** (4-eyes review diff, approve/reject/request changes actions).
-- [x] **19. Accessibility has been reviewed** (WCAG AA contrast, focus rings, dual icon+text non-color cues).
-- [x] **20. No unintended page-level horizontal overflow remains** (All wide content contained in scroll wrappers).
-- [x] **21. Shared-component regressions have been checked** (0 breaking changes across all 16 components).
-- [x] **22. Existing business functionality remains operational** (All calculation, workflow, and NBE rules active).
-- [x] **23. E2E tests have been executed** (8 comprehensive test suites execute and pass 100% green).
-- [x] **24. Discovered issues have been fixed and retested** (Pill capsules removed, badges cleaned, test suite added).
-
----
-
-## 5. Verification Commands & Results
+## 3. Verification Commands & Results
 ```bash
 # Static type analysis (0 errors)
 npm run lint
 
-# Automated test suite (8/8 suites passing)
-npx tsx src/tests/run-all-tests.ts
+# TypeScript automated test suites (8/8 suites passing)
+npm test
+
+# Python / Django Simulator automated test suite (11/11 test cases passing)
+npm run test:simulator
 
 # Production build compilation (Passes)
 npm run build
