@@ -341,17 +341,29 @@ import { runPdfAndSnapshotTests } from './pdf-and-snapshot.test.ts';
 import { runIndexedDbOfflineStorageTests } from './indexeddb-offline-storage.test.ts';
 import { runResponsiveUiAndLayoutTests } from './responsive-ui-and-layout.test.ts';
 import { runAuditorWorkflowTests } from './auditor-workflow.test.ts';
+import { runDesignSystemColorsTests } from './design-system-and-colors.test.ts';
+import { runPaginationSuiteTests } from './pagination-suite.test.ts';
+import { runPhase2ConfigurationSSOTTests } from './phase2-configuration-ssot.test.ts';
+import { runPhase3AdminUsersAndDepartmentsTests } from './phase3-admin-users-departments.test.ts';
+import { runPhase4RegressionHardeningTests } from './phase4-regression-hardening.test.ts';
+import { runPhase5FinalVerificationTests } from './phase5-final-verification.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
   await runSecurityRbacWorkflowTests();
   await runNbeSimulatorTests();
   await runPhase2SsotTests();
+  await runPhase2ConfigurationSSOTTests();
+  runPhase3AdminUsersAndDepartmentsTests();
   await runBiometricAndAccessoryTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();
   await runResponsiveUiAndLayoutTests();
   await runAuditorWorkflowTests();
+  await runDesignSystemColorsTests();
+  await runPaginationSuiteTests();
+  await runPhase4RegressionHardeningTests();
+  await runPhase5FinalVerificationTests();
 
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');

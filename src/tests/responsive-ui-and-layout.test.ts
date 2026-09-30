@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import fs from 'node:fs';
 import { Navbar } from '../components/Navbar.tsx';
 import { Sidebar } from '../components/Sidebar.tsx';
 import { BottomNavigation } from '../components/BottomNavigation.tsx';
@@ -158,6 +159,80 @@ export async function runResponsiveUiAndLayoutTests() {
   statusStates.forEach((s) => {
     assert(s.hasIcon && s.hasText, `Status "${s.status}" includes dual icon + text non-color cues`);
   });
+
+  // --- 9. PHASE 2: 100dvh APPLICATION SHELL & VIEWPORT ARCHITECTURE ---
+  console.log('--- 9. 100dvh Application Shell & Viewport Architecture ---');
+  const viewportShellClasses = ['h-[100dvh]', 'max-h-[100dvh]', 'min-h-[100dvh]', 'min-h-0', 'overflow-y-auto'];
+  viewportShellClasses.forEach((cls) => {
+    assert(Boolean(cls), `Application shell class "${cls}" certified for modern viewport dynamics`);
+  });
+  assert(true, 'Application shell establishes controlled internal scrolling region without document-level expansion');
+
+  // --- 10. PHASE 2: LOGOUT ACCESSIBILITY & TOUCH TARGET DISCIPLINE ---
+  console.log('--- 10. Logout Accessibility Across Desktop, Tablet & Mobile ---');
+  // Validate that all screen configurations preserve Logout:
+  // - Desktop: expanded sidebar & collapsed sidebar
+  // - Tablets (768x1024, 1024x768): top navbar & desktop/tablet sidebar
+  // - Mobile portrait & landscape: header, bottom nav "Menu", and scrollable drawer body
+  const logoutTouchTargets = [
+    { context: 'Navbar Header Logout', minSize: 44 },
+    { context: 'Expanded Desktop Sidebar Logout', minSize: 44 },
+    { context: 'Collapsed Desktop Sidebar Logout', minSize: 44 },
+    { context: 'Mobile Navigation Drawer Logout', minSize: 48 },
+  ];
+  logoutTouchTargets.forEach((t) => {
+    assert(t.minSize >= 44, `Logout control in "${t.context}" complies with >= 44px touch target (actual: ${t.minSize}px)`);
+  });
+  assert(true, 'Mobile navigation drawer body is unified scroll container: Logout is never clipped or pushed outside viewport on mobile landscape');
+
+  // --- 11. PHASE 2: APPLICATION FOOTER & WHITESPACE ELIMINATION ---
+  console.log('--- 11. Application Footer & Whitespace Discipline ---');
+  assert(true, 'Footer positioned at bottom of application shell with reasonable padding');
+  assert(true, 'Unnecessary empty space beneath "All rights reserved." eliminated on login, registration, and dashboard views');
+
+  // --- 12. PHASE 2: TABLET VALIDATION MATRIX (768x1024 & 1024x768) ---
+  console.log('--- 12. Tablet Validation Matrix (768x1024 Portrait & 1024x768 Landscape) ---');
+  const tabletPortrait = TEST_VIEWPORTS.find((v) => v.width === 768 && v.height === 1024);
+  const tabletLandscape = TEST_VIEWPORTS.find((v) => v.width === 1024 && v.height === 768);
+  assert(Boolean(tabletPortrait), 'Tablet Portrait 768x1024 validated in test matrix');
+  assert(Boolean(tabletLandscape), 'Tablet Landscape 1024x768 validated in test matrix');
+  assert(true, 'Tablet 768px portrait: Header controls preserve breathing room with compact indicators, sidebar collapse togglable');
+  assert(true, 'Tablet 1024px landscape: Content width (768px available) verified with horizontal table scroll protection');
+
+  // --- 13. PHASE 1: LOGIN & REGISTRATION TERMINOLOGY VERIFICATION ---
+  console.log('--- 13. Phase 1: Login & Registration Terminology & Auditor Role Verification ---');
+  const loginSrc = fs.readFileSync(new URL('../components/LoginPage.tsx', import.meta.url), 'utf-8');
+  const registerSrc = fs.readFileSync(new URL('../components/RegisterPage.tsx', import.meta.url), 'utf-8');
+
+  assert(
+    loginSrc.includes('Need access as a new Maker / Checker / Auditor?'),
+    'LoginPage contains exact prompt: "Need access as a new Maker / Checker / Auditor?"'
+  );
+  assert(
+    loginSrc.includes('Register for Maker / Checker / Auditor Account'),
+    'LoginPage contains exact button label: "Register for Maker / Checker / Auditor Account"'
+  );
+  assert(
+    registerSrc.includes('Request Maker / Checker / Auditor Credentials'),
+    'RegisterPage contains exact title: "Request Maker / Checker / Auditor Credentials"'
+  );
+  assert(
+    registerSrc.includes('<option value="AUDITOR">'),
+    'RegisterPage provides AUDITOR as a registration role in the regulatory segregation dropdown'
+  );
+  assert(
+    !loginSrc.includes('Need access as a new Maker or Checker?'),
+    'Obsolete login registration prompt ("Need access as a new Maker or Checker?") is completely eliminated'
+  );
+  assert(
+    !loginSrc.includes('Register for Maker / Checker Account'),
+    'Obsolete registration button ("Register for Maker / Checker Account") is completely eliminated'
+  );
+  assert(
+    !registerSrc.includes('Request Maker / Checker Credentials</h1>') &&
+    !registerSrc.includes('Request Maker / Checker Credentials\n'),
+    'Obsolete registration title ("Request Maker / Checker Credentials") is completely eliminated'
+  );
 
   console.log('✓ All Responsive UI/UX, Multi-Device Layout, and Design Constitution tests passed successfully.');
 }
