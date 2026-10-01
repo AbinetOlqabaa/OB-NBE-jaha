@@ -944,6 +944,60 @@ export function useBiometricAuth() {
     [getStoredCredentials, refreshEnrolledStatus]
   );
 
+  /**
+   * Request step-up authenticated biometric reset
+   */
+  const requestResetBiometrics = useCallback(
+    async (email: string, password: string, type: 'FINGERPRINT' | 'FACE' | 'ALL' = 'ALL', reason: string = 'User initiated reset') => {
+      try {
+        const res = await fetch('/api/auth/biometrics/reset/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, type, reason }),
+        });
+        return await res.json();
+      } catch {
+        return { success: false, message: 'Failed to contact biometric reset service.' };
+      }
+    },
+    []
+  );
+
+  /**
+   * Execute authorized biometric reset with resetToken
+   */
+  const executeResetBiometrics = useCallback(
+    async (email: string, resetToken: string) => {
+      try {
+        const res = await fetch('/api/auth/biometrics/reset/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, resetToken }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          removeBiometric(email);
+        }
+        return data;
+      } catch {
+        return { success: false, message: 'Failed to execute biometric reset.' };
+      }
+    },
+    [removeBiometric]
+  );
+
+  /**
+   * Fetch authoritative user biometric lifecycle state
+   */
+  const fetchLifecycleState = useCallback(async (email: string) => {
+    try {
+      const res = await fetch(`/api/auth/biometrics/lifecycle/${encodeURIComponent(email)}`);
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }, []);
+
   const resetError = () => setError(null);
 
   return {
@@ -972,6 +1026,9 @@ export function useBiometricAuth() {
     authenticateBiometric: login,
     saveLocalCredential,
     removeBiometric,
+    requestResetBiometrics,
+    executeResetBiometrics,
+    fetchLifecycleState,
     preferredMethod,
     setFingerprintHardwareStatus,
     setCameraHardwareStatus,

@@ -1277,6 +1277,12 @@ export const NBE_REPORTS: ReportMetadata[] = [
   }
 ];
 
+const REPORTS_STORAGE_KEY = 'ob_report_templates_registry';
+const REPORTS_CHANGE_EVENT = 'ob:reports:changed';
+type ReportChangeListener = (reports: ReportMetadata[]) => void;
+const reportListeners: Set<ReportChangeListener> = new Set();
+let dynamicReportsList: ReportMetadata[] = [];
+
 // Ensure all 24 reports have their canonical department and departments array assigned
 NBE_REPORTS.forEach((r) => {
   if (!r.department) {
@@ -1286,13 +1292,6 @@ NBE_REPORTS.forEach((r) => {
     r.departments = [r.department];
   }
 });
-
-const REPORTS_STORAGE_KEY = 'ob_report_templates_registry';
-const REPORTS_CHANGE_EVENT = 'ob:reports:changed';
-type ReportChangeListener = (reports: ReportMetadata[]) => void;
-const reportListeners: Set<ReportChangeListener> = new Set();
-
-let dynamicReportsList: ReportMetadata[] = [];
 
 function initDynamicReports(): void {
   if (typeof window === 'undefined') {
@@ -1626,4 +1625,39 @@ export function reassignDepartmentInReports(removedDept: string, fallbackDept: s
     saveDynamicReports();
   }
   return count;
+}
+
+/**
+ * Synchronizes an SSOT report definition/version directly into the active report catalog
+ */
+export function syncSSOTReportToRegistry(report: ReportMetadata): void {
+  if (dynamicReportsList.length === 0) {
+    initDynamicReports();
+  }
+  const norm = report.ReturnKey.trim().toUpperCase();
+  const index = dynamicReportsList.findIndex((r) => r.ReturnKey.toUpperCase() === norm);
+  if (index >= 0) {
+    dynamicReportsList[index] = { ...dynamicReportsList[index], ...report };
+  } else {
+    dynamicReportsList.push(report);
+  }
+  saveDynamicReports();
+}
+
+/**
+ * Marks an SSOT report as retired/decommissioned in the active registry
+ */
+export function retireSSOTReportInRegistry(returnKey: string): void {
+  if (dynamicReportsList.length === 0) {
+    initDynamicReports();
+  }
+  const norm = returnKey.trim().toUpperCase();
+  const index = dynamicReportsList.findIndex((r) => r.ReturnKey.toUpperCase() === norm);
+  if (index >= 0) {
+    dynamicReportsList[index] = {
+      ...dynamicReportsList[index],
+      Description: `[RETIRED] ${dynamicReportsList[index].Description}`,
+    };
+    saveDynamicReports();
+  }
 }
