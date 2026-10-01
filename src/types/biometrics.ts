@@ -146,6 +146,7 @@ export interface BiometricRateLimitState {
 export type BiometricAuditAction =
   | 'BIOMETRIC_CHALLENGE_ISSUED'
   | 'BIOMETRIC_ENROLLED'
+  | 'BIOMETRIC_ENROLL_REJECTED'
   | 'BIOMETRIC_AUTH_SUCCESS'
   | 'BIOMETRIC_AUTH_FAILURE'
   | 'BIOMETRIC_REVOKED'

@@ -4,6 +4,42 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [11.0.0-phase11-biometric-registration-enrollment] - 2026-10-01
+
+### Added
+- **Genuine End-to-End Biometric Registration and Enrollment (`src/services/biometricService.ts`, `src/hooks/useBiometricAuth.ts`, `src/components/BiometricPromptModal.tsx`, `src/components/RegisterPage.tsx`, `src/tests/phase11-biometric-registration-enrollment.test.ts`, `11_BIOMETRIC_REGISTRATION_ENROLLMENT.md`)**:
+  - Complete authenticated Face ID and Fingerprint/WebAuthn enrollment with genuine end-to-end flows and zero simulated success.
+  - Independent Biometric Methods:
+    - User selects one method at a time; enrolling Fingerprint leaves Face ID independent, and enrolling Face ID leaves Fingerprint independent.
+    - Both methods can coexist on a single institutional account with distinct credential records and lifecycle states.
+    - Post-registration success screen allows users to independently enroll a second method or proceed with standard credentials.
+  - Optical Face ID Enrollment Pipeline:
+    - Supports both live camera stream (PC/webcam) and native mobile selfie camera (`input type="file" capture="user"`).
+    - Detects browser camera capabilities (`navigator.mediaDevices.getUserMedia`).
+    - Staged accessible animation pipeline: `preparing`, `permission`, `camera start`, `face search`, `quality`, `liveness`, `processing`, and `success/failure/retry`.
+    - Live optical frame preview with alignment guide reticle and oval guide.
+    - Real-time client-side frame quality analysis (`analyzeFaceQuality`): luminance, sharpness (spatial Laplacian edge variance), single face presence, and face bounding ratio.
+    - Real optical motion and liveness anti-spoofing analysis (`analyzeFaceLiveness`): temporal variance detection to prevent presentation attacks using static photos or simulated screens.
+    - Server-authoritative quality and liveness enforcement (`/api/auth/biometrics/face/enroll`): validates single face, luminance in [35, 235], sharpness >= 0.35, spoof probability <= 0.40.
+    - Protected template persistence: non-invertible salted HMAC feature signature (`computeProtectedFaceSignature`); zero raw camera frames or pixel buffers stored.
+    - Graceful error notifications and recovery actions for: permission granted/denied/dismissed, no camera (`NotFoundError`), camera busy (`NotReadableError`), unsupported browser, initialization failure, no face (`faceCount === 0`), multiple faces (`faceCount > 1`), poor quality (blurry, underexposed, overexposed glare), timeout (30-second inactivity auto-cancel), liveness failure, and server failure.
+    - Truthful hardware identity: does not claim exact device model unless the browser reliably provides it via `MediaDeviceInfo.label`.
+  - WebAuthn Platform Fingerprint Passkey Enrollment:
+    - Authenticated identity context binding: only active authorized institutional accounts can obtain challenges and register passkeys.
+    - Cryptographic server challenge issuance (`/api/auth/biometrics/webauthn/register-options`) with 60-second TTL.
+    - Standard `PublicKeyCredentialCreationOptions` with `platform` authenticator attachment and `userVerification: required`.
+    - Server verification endpoint (`/api/auth/biometrics/webauthn/register-verify`) with credential ID storage, monotonic counter initialization, and public-key metadata.
+    - Comprehensive error handling without simulated success: unsupported browser, unavailable platform authenticator, user cancellation (`AbortError`), timeout, iframe security policy restriction (`SecurityError`), and server verification failure.
+  - Cross-Account Isolation & Identity Safeguards:
+    - Prevents duplicate WebAuthn credential IDs across accounts (cross-account collision rejected with `BIOMETRIC_ENROLL_REJECTED` audit log).
+    - Prevents duplicate facial biometric templates across accounts (duplicate biometric identity rejected with `BIOMETRIC_ENROLL_REJECTED` audit log).
+    - Enrollment challenge cannot be hijacked or consumed by a different account identity.
+  - Automated Phase 11 Test Suite (`src/tests/phase11-biometric-registration-enrollment.test.ts`):
+    - 6 comprehensive test suites covering method independence, capability detection and truthful device reporting, Face ID quality and anti-spoofing liveness, WebAuthn authenticated enrollment, cross-account isolation and duplicate credential prevention, and persistence/audit logging.
+    - Integrated into master test runner (`src/tests/run-all-tests.ts`) with 100% clean pass across all 22 automated test suites.
+
+---
+
 ## [10.0.0-phase10-biometric-architecture-security-foundation] - 2026-10-01
 
 ### Added

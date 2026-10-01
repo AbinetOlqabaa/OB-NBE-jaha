@@ -354,6 +354,7 @@ import { runRealtimeSsotSynchronizationTests } from './realtime-ssot-synchroniza
 import { runConfigurationGovernanceVersioningTests } from './configuration-governance-versioning.test.ts';
 import { runPhase9PlatformHardeningAcceptanceTests } from './phase9-platform-hardening-acceptance.test.ts';
 import { runPhase10BiometricArchitectureSecurityTests } from './phase10-biometric-architecture-security.test.ts';
+import { runPhase11BiometricRegistrationEnrollmentTests } from './phase11-biometric-registration-enrollment.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -364,6 +365,7 @@ async function runFullApplicationTestSuite() {
   runPhase3AdminUsersAndDepartmentsTests();
   await runBiometricAndAccessoryTests();
   await runPhase10BiometricArchitectureSecurityTests();
+  await runPhase11BiometricRegistrationEnrollmentTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();
   await runResponsiveUiAndLayoutTests();

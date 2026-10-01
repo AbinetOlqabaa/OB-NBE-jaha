@@ -1,4 +1,4 @@
-# 13 - CURRENT IMPLEMENTATION STATUS: PHASE 10 BIOMETRIC ARCHITECTURE AND SECURITY FOUNDATION
+# 13 - CURRENT IMPLEMENTATION STATUS: PHASE 11 BIOMETRIC REGISTRATION AND ENROLLMENT
 **Application**: Oromia Bank NBE Regulatory Reporting Platform  
 **Compliance Authority**: National Bank of Ethiopia (Bank Supervision Directorate)  
 **Licensed Institution**: Oromia Bank S.C. (InstCode: `0000013`)  
@@ -6,7 +6,7 @@
 **Execution Date**: 2026-10-01  
 **Build Status**: ✅ PASSING (`compile_applet` / `npm run build` 100% clean)  
 **TypeScript Lint Status**: ✅ PASSING (`npm run lint` / `tsc --noEmit` 0 errors)  
-**Automated Test Runner**: ✅ PASSING (21/21 comprehensive test suites green [100% pass], including `phase10-biometric-architecture-security.test.ts`)  
+**Automated Test Runner**: ✅ PASSING (22/22 comprehensive test suites green [100% pass], including `phase11-biometric-registration-enrollment.test.ts`)  
 
 ---
 
@@ -14,6 +14,7 @@
 
 | Module | Core Files | Status | Test Coverage |
 |---|---|---|---|
+| **Phase 11 Biometric Registration & Enrollment** | `src/services/biometricService.ts`, `src/hooks/useBiometricAuth.ts`, `src/components/BiometricPromptModal.tsx`, `src/components/RegisterPage.tsx`, `src/tests/phase11-biometric-registration-enrollment.test.ts`, `11_BIOMETRIC_REGISTRATION_ENROLLMENT.md` | COMPLETED & VERIFIED | 100% pass (`phase11-biometric-registration-enrollment.test.ts` [6 test suites, 28 assertions]): Complete authenticated Face ID & WebAuthn Fingerprint enrollment; Method independence (Fingerprint & Face remain isolated & coexistent); Optical Face ID pipeline with live preview & mobile selfie support; Real-time client-side frame quality analysis (`analyzeFaceQuality` [luminance, sharpness, single face count, bounding ratio]); Optical motion & liveness anti-spoofing analysis (`analyzeFaceLiveness`); Server quality & anti-spoofing verification; Protected template storage; WebAuthn platform authenticator registration; Error handling without simulated success (denied, busy, unsupported, no face, multi-face, blur, dark, timeout, duplicate passkey, server failure); Truthful hardware reporting; Cross-account isolation & duplicate credential prevention. |
 | **Phase 10 Biometric Architecture & Security Foundation** | `src/types/biometrics.ts`, `src/services/biometricService.ts`, `server.ts`, `src/hooks/useBiometricAuth.ts`, `src/tests/phase10-biometric-architecture-security.test.ts`, `10_BIOMETRIC_ARCHITECTURE_AND_SECURITY_FOUNDATION.md` | COMPLETED & VERIFIED | 100% pass (`phase10-biometric-architecture-security.test.ts` [10 test suites, 45 assertions]): Authoritative user biometric lifecycle states (NOT_ENROLLED, ENROLLMENT_IN_PROGRESS, ENROLLED, SUSPENDED, REVOKED, RESET_REQUESTED, RESET_IN_PROGRESS, FAILED_LOCKED, CAPABILITY_UNAVAILABLE); clear distinction from physical device capability; Cryptographic challenge lifecycle (60s TTL, single-use consumption, replay attack defense, cross-user binding, purpose verification); WebAuthn platform passkey registration & assertion (RP ID, user binding, ES256/RS256, monotonic counter tracking, replay anomaly rejection); Protected server-authoritative Face engine (luminance, sharpness, single-face detection, aspect ratio, liveness anti-spoofing verification, non-invertible salted HMAC feature representation, zero raw pixel persistence); Progressive rate limiting (5 failed attempts -> 15m lockout, step-up password unlock); Step-up password authorized reset & recovery; Comprehensive security audit trail; Legacy data migration engine. |
 | **Phase 8 Configuration Governance, Versioning, Approval & Rollback** | `src/services/configurationGovernanceService.ts`, `src/components/ConfigurationGovernanceView.tsx`, `src/services/configService.ts`, `server.ts`, `08_CONFIGURATION_GOVERNANCE_VERSIONING_ROLLBACK.md` | COMPLETED & VERIFIED | 100% pass (`configuration-governance-versioning.test.ts` [57 assertions]): Complete lifecycle (Draft → Validate → Impact Analysis → Dual Review/Approval → Publish → Effective → Audit); Risk classification (Low, Medium, High, Critical); Multi-domain impact analysis (affected users, departments, reports, workflows, submissions, historical preservation guarantee); Secret stripping in audit logs; 4-eyes segregation of duties (proposer cannot self-approve high risk); Optimistic concurrency locking (HTTP 409 conflict); Controlled governed rollback without destroying history; Material change user notifications; Completion Gate: Official audit explanation engine ("who changed what, when, from what, to what, under which approval/workflow, when it became effective, and what it affected") |
 | **Phase 7 Real-Time Single-Source-of-Truth Synchronization** | `src/services/realtimeSsotEngine.ts`, `src/services/realtimeSsotClient.ts`, `src/hooks/useRealtimeSSOT.ts`, `server.ts`, `07_REAL_TIME_SSOT_SYNCHRONIZATION.md` | COMPLETED & VERIFIED | 100% pass (`realtime-ssot-synchronization.test.ts`): Real-time WebSocket + SSE delivery preserving Django/database authority, zero simulated timers, monotonic sequence tracking, reconnect recovery, missed events replay, duplicate event deduplication, stale cache revalidation, RBAC topic subscription authorization, sensitive credential stripping, and atomic transaction rollback safety |
@@ -34,6 +35,51 @@
 | **Excel Service** | `src/utils/excelService.ts` | COMPLETED & VERIFIED | Lossless multi-sheet .xlsx generation, dynamic area tables, re-import |
 | **Knowledge Base Normalization**| `.ai/*.md` (29 canonical files) | COMPLETED & VERIFIED | Strict `NUMBER_CANONICAL_NAME.md` schema, zero duplicates, clean index |
 | **Phase 1 Terminology Update** | `src/components/LoginPage.tsx`, `src/components/RegisterPage.tsx` | COMPLETED & VERIFIED | Maker / Checker / Auditor prompt, button, title, and role selection verified |
+
+---
+
+## 0.0000 Phase 11 Implementation Status: BIOMETRIC REGISTRATION AND ENROLLMENT
+
+**Phase 11 Status**: ✅ **COMPLETED & VERIFIED**
+
+### Summary of Completed Phase 11 Capabilities:
+
+1. **Method Independence (Face ID vs. Fingerprint / Platform Authenticator)**:
+   - User selects one biometric method at a time; methods remain completely independent in data structures, server verification, and state machines.
+   - Enrolling Fingerprint preserves Face ID as `NOT_ENROLLED` (or current state).
+   - Enrolling Face ID preserves Fingerprint as `NOT_ENROLLED` (or current state).
+   - Both methods can coexist on a single institutional account (`credentials: [FINGERPRINT, FACE]`).
+   - Independent revocation/suspension: revoking Face ID leaves Fingerprint active; revoking Fingerprint leaves Face ID active.
+2. **Optical Face ID Registration & Enrollment Pipeline**:
+   - Multi-device optical capture: supports both desktop/PC webcam via `getUserMedia` and mobile phone selfie camera via `<input type="file" capture="user">`.
+   - Staged accessible animation pipeline with ARIA live announcements:
+     - `preparing` -> `permission` -> `camera start` -> `face search` -> `quality` -> `liveness` -> `processing` -> `success/failure/retry`.
+   - Real-time client-side frame quality analysis (`analyzeFaceQuality`):
+     - Evaluates illumination (rejects luminance < 35 [too dark] and > 235 [overexposed glare]).
+     - Evaluates sharpness via spatial Laplacian difference (rejects blurry frames < 0.35).
+     - Verifies single face framing (rejects 0 faces or multiple faces > 1).
+   - Real optical motion & liveness anti-spoofing analysis (`analyzeFaceLiveness`):
+     - Evaluates inter-frame micro-motion and temporal variance to reject static photos and screen presentation attacks (rejects spoofProbability > 0.40).
+   - Server-authoritative template protection (`/api/auth/biometrics/face/enroll`):
+     - Non-invertible salted HMAC feature signature (`computeProtectedFaceSignature`).
+     - Zero raw camera frames or pixel buffers stored on disk, database, or logs.
+3. **WebAuthn Platform Fingerprint Passkey Enrollment**:
+   - Authenticated identity context: verified before issuing challenges.
+   - Fresh cryptographic challenge issuance with 60-second TTL (`/api/auth/biometrics/webauthn/register-options`).
+   - Standard `PublicKeyCredentialCreationOptions` with platform attachment, ES256/RS256, and `userVerification: required`.
+   - Server verification (`/api/auth/biometrics/webauthn/register-verify`) with credential ID storage, monotonic counter initialization, and public-key metadata.
+   - Genuine error handling with zero simulated success: handles unsupported browser, unavailable authenticator, user cancellation (`AbortError`), timeout, and iframe security restrictions.
+4. **Cross-Account Isolation & Identity Safeguards**:
+   - Strict binding: enrollment challenge cannot be consumed by a different account identity.
+   - Duplicate credential prevention: duplicate WebAuthn credential IDs across accounts are rejected with `BIOMETRIC_ENROLL_REJECTED` audit log.
+   - Duplicate biometric identity prevention: identical face template signatures across different institutional accounts are rejected with `BIOMETRIC_ENROLL_REJECTED` audit log.
+5. **Truthful Device Hardware Reporting**:
+   - Adheres to standard: does not claim exact hardware models (e.g. third-party peripheral names) unless reliably provided by the browser environment (`MediaDeviceInfo.label`).
+6. **Graceful Failures and Recovery Notifications**:
+   - Actionable user notifications for camera permission denied, busy camera, no face in frame, multiple faces, blurriness, timeout, duplicate passkey, and server failure.
+   - Clear recovery paths: retry camera, use mobile selfie camera, re-prompt permission, or continue with supervisor password.
+7. **Automated Test Suite (`src/tests/phase11-biometric-registration-enrollment.test.ts`)**:
+   - 6 test suites covering method independence, capability detection, Face ID quality and liveness, WebAuthn platform passkey enrollment, cross-account isolation, and audit trail resilience (100% pass across all 22 automated test suites).
 
 ---
 

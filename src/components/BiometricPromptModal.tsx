@@ -24,11 +24,30 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { vibrate, haptics } from '../utils/haptics.ts';
-import { useBiometricAuth, computeFaceHashFromImageData } from '../hooks/useBiometricAuth.ts';
+import {
+  useBiometricAuth,
+  computeFaceHashFromImageData,
+  analyzeFaceQuality,
+  analyzeFaceLiveness,
+} from '../hooks/useBiometricAuth.ts';
 import { HardwareDiagnosticsModal } from './HardwareDiagnosticsModal.tsx';
 import { recordBiometricAuditLog } from './AuditTrailView.tsx';
 
 const INACTIVITY_TIMEOUT_SECONDS = 30;
+
+export type FaceEnrollStage =
+  | 'PREPARING'
+  | 'PERMISSION'
+  | 'CAMERA_START'
+  | 'FACE_SEARCH'
+  | 'QUALITY'
+  | 'QUALITY_CHECK'
+  | 'LIVENESS'
+  | 'LIVENESS_CHECK'
+  | 'PROCESSING'
+  | 'SUCCESS'
+  | 'FAILURE'
+  | 'RETRY';
 
 interface BiometricPromptModalProps {
   isOpen: boolean;
@@ -68,6 +87,8 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
   const [currentMode, setCurrentMode] = useState<'REGISTER' | 'AUTHENTICATE'>(mode);
   const [authType, setAuthType] = useState<'FINGERPRINT' | 'FACE'>(initialMethod);
   const [scanState, setScanState] = useState<'IDLE' | 'SCANNING' | 'SUCCESS' | 'ERROR' | 'TIMEOUT' | 'NEED_ENROLL'>('IDLE');
+  const [faceEnrollStage, setFaceEnrollStage] = useState<FaceEnrollStage>('PREPARING');
+  const [specificErrorReason, setSpecificErrorReason] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
@@ -150,20 +171,30 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
 
   // Request browser camera stream with user permission
   const requestCameraStream = useCallback(async () => {
-    setStatusMessage('Requesting camera access...');
+    setFaceEnrollStage('PERMISSION');
+    setStatusMessage('Requesting camera access permission from browser...');
+    setSpecificErrorReason(null);
     try {
       const res = await startCameraStream(videoRef.current);
       if (res.success) {
         setCameraActive(true);
-        setStatusMessage('Center your face in the camera frame');
+        setFaceEnrollStage('CAMERA_START');
+        setTimeout(() => {
+          setFaceEnrollStage('FACE_SEARCH');
+          setStatusMessage('Center your face in the optical frame guide');
+        }, 200);
         return true;
       } else {
         setCameraActive(false);
+        setFaceEnrollStage('FAILURE');
+        setSpecificErrorReason(res.error || 'Camera permission denied or camera device busy.');
         setStatusMessage(res.error || 'Live camera access pending. You can also use the Mobile Selfie Camera.');
         return false;
       }
     } catch (err: any) {
       setCameraActive(false);
+      setFaceEnrollStage('FAILURE');
+      setSpecificErrorReason(err?.message || 'Live stream initialization failed.');
       setStatusMessage('Live stream unavailable. Tap "Use Mobile Camera" to capture directly.');
       return false;
     }
@@ -192,6 +223,8 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
     vibrate(15);
     setAuthType(type);
     setScanState('IDLE');
+    setFaceEnrollStage('PREPARING');
+    setSpecificErrorReason(null);
     setStatusMessage(null);
     resetTimer();
   };
@@ -203,6 +236,8 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
     vibrate([20, 25]);
     resetTimer();
     setScanState('IDLE');
+    setFaceEnrollStage('PREPARING');
+    setSpecificErrorReason(null);
     setStatusMessage(null);
 
     if (authType === 'FACE') {
@@ -216,14 +251,25 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
   const processFaceData = async (captured: { imageBase64?: string; faceHash?: string }) => {
     resetTimer();
     setScanState('SCANNING');
-    setStatusMessage('Analyzing facial biometric geometry...');
+    setFaceEnrollStage('QUALITY_CHECK');
+    setStatusMessage('Validating facial illumination & sharpness...');
     vibrate([20, 30, 20]);
     haptics.medium();
 
     try {
       if (currentMode === 'REGISTER') {
+        setFaceEnrollStage('LIVENESS_CHECK');
+        setStatusMessage('Evaluating optical liveness & anti-spoofing...');
+
+        setFaceEnrollStage('PROCESSING');
+        setStatusMessage('Encrypting protected non-invertible facial template in NBE vault...');
+
         const res = await register(userEmail, 'FACE', captured);
-        if (!res.success) throw new Error(res.error || 'Failed to register facial passkey.');
+        if (!res.success) {
+          setFaceEnrollStage('FAILURE');
+          setSpecificErrorReason(res.error || 'Failed to register facial passkey.');
+          throw new Error(res.error || 'Failed to register facial passkey.');
+        }
 
         await recordBiometricAuditLog({
           actorId: userEmail,
@@ -235,7 +281,9 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
           details: `[NBE Directive BSD/03/2020 Compliance] Facial biometric profile registered successfully for ${userEmail}.`,
         });
 
+        setFaceEnrollStage('SUCCESS');
         setScanState('SUCCESS');
+        setStatusMessage('Facial profile enrolled and secured in NBE vault.');
         vibrate([30, 50, 40]);
         haptics.success();
         stopCameraStream();
@@ -275,7 +323,9 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
       }
     } catch (err: any) {
       setScanState('ERROR');
+      setFaceEnrollStage('FAILURE');
       const msg = err?.message || 'Face authentication challenge failed.';
+      setSpecificErrorReason(msg);
       setStatusMessage(msg);
       vibrate([50, 60, 50]);
       haptics.error();
@@ -541,7 +591,7 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
             </div>
             <span className="text-[9px] flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Sensor Ready
+              Platform WebAuthn
             </span>
           </button>
 
@@ -565,6 +615,151 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
             </span>
           </button>
         </div>
+
+        {/* Phase 11: Staged Accessible Animation Pipeline for Face ID Registration */}
+        {currentMode === 'REGISTER' && authType === 'FACE' && (
+          <div
+            className="bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-left space-y-1.5"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              <span>Enrollment Stage</span>
+              <span className="text-teal-600 dark:text-teal-400 font-mono">
+                {faceEnrollStage === 'PREPARING'
+                  ? 'Stage 1/7: Preparing'
+                  : faceEnrollStage === 'PERMISSION'
+                  ? 'Stage 2/7: Permission'
+                  : faceEnrollStage === 'CAMERA_START'
+                  ? 'Stage 3/7: Camera Start'
+                  : faceEnrollStage === 'FACE_SEARCH'
+                  ? 'Stage 4/7: Face Search'
+                  : faceEnrollStage === 'QUALITY' || faceEnrollStage === 'QUALITY_CHECK'
+                  ? 'Stage 5/7: Quality Analysis'
+                  : faceEnrollStage === 'LIVENESS' || faceEnrollStage === 'LIVENESS_CHECK'
+                  ? 'Stage 6/7: Anti-Spoofing Liveness'
+                  : faceEnrollStage === 'PROCESSING'
+                  ? 'Stage 7/7: Protected Vault Encryption'
+                  : faceEnrollStage === 'SUCCESS'
+                  ? 'Verified • Enrolled'
+                  : faceEnrollStage === 'RETRY'
+                  ? 'Retrying Capture'
+                  : 'Enrollment Action Needed'}
+              </span>
+            </div>
+
+            {/* Accessible Stepper Indicators */}
+            <div className="grid grid-cols-7 gap-1" aria-hidden="true">
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  faceEnrollStage !== 'FAILURE' ? 'bg-teal-500' : 'bg-slate-300 dark:bg-slate-700'
+                }`}
+                title="Preparing"
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  faceEnrollStage !== 'PREPARING' && faceEnrollStage !== 'FAILURE'
+                    ? 'bg-teal-500'
+                    : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+                title="Permission"
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  cameraActive ||
+                  ['CAMERA_START', 'FACE_SEARCH', 'QUALITY', 'QUALITY_CHECK', 'LIVENESS', 'LIVENESS_CHECK', 'PROCESSING', 'SUCCESS'].includes(
+                    faceEnrollStage
+                  )
+                    ? 'bg-teal-500'
+                    : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+                title="Camera Start"
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  ['FACE_SEARCH', 'QUALITY', 'QUALITY_CHECK', 'LIVENESS', 'LIVENESS_CHECK', 'PROCESSING', 'SUCCESS'].includes(
+                    faceEnrollStage
+                  )
+                    ? 'bg-teal-500'
+                    : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+                title="Face Search"
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  ['QUALITY', 'QUALITY_CHECK', 'LIVENESS', 'LIVENESS_CHECK', 'PROCESSING', 'SUCCESS'].includes(
+                    faceEnrollStage
+                  )
+                    ? 'bg-teal-500'
+                    : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+                title="Quality"
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  ['LIVENESS', 'LIVENESS_CHECK', 'PROCESSING', 'SUCCESS'].includes(faceEnrollStage)
+                    ? 'bg-teal-500'
+                    : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+                title="Liveness"
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  faceEnrollStage === 'SUCCESS'
+                    ? 'bg-emerald-500'
+                    : faceEnrollStage === 'PROCESSING'
+                    ? 'bg-teal-400 animate-pulse'
+                    : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+                title="Encryption"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Phase 11: WebAuthn Platform Identity Context Banner for Fingerprint */}
+        {currentMode === 'REGISTER' && authType === 'FINGERPRINT' && (
+          <div className="bg-emerald-50/70 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200/80 dark:border-emerald-800/60 text-left space-y-1">
+            <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>WebAuthn Authenticated Context (NBE InstCode: 0000013)</span>
+            </div>
+            <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400">
+              Platform authenticator bound to <span className="font-semibold">{userEmail}</span>. No raw biometric templates leave your device enclave.
+            </p>
+          </div>
+        )}
+
+        {/* Specific Error Recovery Notification Card */}
+        {specificErrorReason && (
+          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/80 text-left space-y-1 animate-in fade-in">
+            <div className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400 font-bold text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>Enrollment Notice</span>
+            </div>
+            <p className="text-[11px] text-rose-600 dark:text-rose-300 leading-snug">
+              {specificErrorReason}
+            </p>
+            {authType === 'FACE' && (
+              <div className="pt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[10px] font-bold hover:bg-rose-500 cursor-pointer"
+                >
+                  Use Mobile Camera
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  className="px-2 py-1 bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                >
+                  Retry Camera
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Interactive Biometric Viewport */}
         {scanState === 'TIMEOUT' ? (

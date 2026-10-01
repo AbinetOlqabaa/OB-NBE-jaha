@@ -451,6 +451,25 @@ export class BiometricServiceClass {
       return { success: false, message: 'Missing WebAuthn credential ID in registration response.' };
     }
 
+    // Phase 11 Identity Safeguards: Prevent duplicate credential across accounts (Cross-account isolation)
+    const existingOtherUserCred = Array.from(this.credentials.values()).find(
+      (c) => c.credentialId === response.credentialId && c.userId !== user.id && c.status === 'ENROLLED'
+    );
+    if (existingOtherUserCred) {
+      this.logAudit({
+        actorId: user.id,
+        actorName: user.name,
+        actorRole: user.role,
+        action: 'BIOMETRIC_ENROLL_REJECTED',
+        entityId: user.id,
+        details: `Rejected WebAuthn registration: Credential ID ${response.credentialId} is already bound to another institutional account (${existingOtherUserCred.email}). Cross-account collision prohibited.`,
+      });
+      return {
+        success: false,
+        message: 'Duplicate credential error: This security key / passkey is already registered to another institutional account.',
+      };
+    }
+
     // Remove existing FINGERPRINT credential for this user to allow clean re-enrollment
     for (const [k, cred] of this.credentials.entries()) {
       if (cred.userId === user.id && cred.type === 'FINGERPRINT') {
@@ -751,6 +770,25 @@ export class BiometricServiceClass {
 
     // Compute non-invertible protected face signature
     const vectorHash = computeProtectedFaceSignature(featureVector);
+
+    // Phase 11 Identity Safeguards: Prevent duplicate biometric template across different accounts
+    const existingOtherFaceCred = Array.from(this.credentials.values()).find(
+      (c) => c.type === 'FACE' && c.userId !== user.id && c.status === 'ENROLLED' && c.faceTemplate?.vectorHash === vectorHash
+    );
+    if (existingOtherFaceCred) {
+      this.logAudit({
+        actorId: user.id,
+        actorName: user.name,
+        actorRole: user.role,
+        action: 'BIOMETRIC_ENROLL_REJECTED',
+        entityId: user.id,
+        details: `Rejected Face ID enrollment: Biometric template signature matches existing enrolled account (${existingOtherFaceCred.email}). Duplicate cross-account enrollment prohibited per NBE BSD/03/2020.`,
+      });
+      return {
+        success: false,
+        message: 'Duplicate biometric identity: This facial recognition signature is already enrolled under a different institutional account.',
+      };
+    }
 
     // Remove existing FACE credential for clean re-enrollment
     for (const [k, cred] of this.credentials.entries()) {
