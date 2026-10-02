@@ -25,6 +25,7 @@ export interface BiometricCredential {
   enrolledAt: string;
   deviceLabel: string;
   faceHash?: string;
+  rawVectorChecksum?: string;
   publicKey?: string;
 }
 
@@ -367,7 +368,7 @@ class UserServiceClass {
       return { success: false, message: 'An account with this email address already exists.' };
     }
 
-    const newId = `usr_${data.role.toLowerCase()}_${Date.now()}`;
+    const newId = `usr_${data.role.toLowerCase()}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newUser: UserAccount = {
       id: newId,
       name: data.name.trim(),
@@ -402,6 +403,9 @@ class UserServiceClass {
     user?: UserAccount;
     message?: string;
     redirectTab?: string;
+    sessionToken?: string;
+    sessionExpiresAt?: string;
+    authMethod?: 'PASSWORD';
   } {
     if (!email || !email.trim()) {
       return { success: false, message: 'Corporate email address is required.' };
@@ -445,10 +449,15 @@ class UserServiceClass {
     else if (user.role === 'MAKER') redirectTab = 'MAKER_WORKSPACE';
 
     const { password: pw, ...safe } = user;
+    const sessionToken = `sess_pwd_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const sessionExpiresAt = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
     return {
       success: true,
       user: safe as UserAccount,
       redirectTab,
+      sessionToken,
+      sessionExpiresAt,
+      authMethod: 'PASSWORD' as const,
       message: 'Login successful.',
     };
   }
@@ -565,10 +574,17 @@ class UserServiceClass {
       user.biometricCredentials = [];
     }
 
-    // Remove existing credential of same type if re-enrolling
-    user.biometricCredentials = user.biometricCredentials.filter(
-      (c) => c.type !== credential.type
-    );
+    // For WebAuthn passkeys, support multiple authenticators; update by credentialId
+    // For Face recognition, maintain single authoritative enrolled profile per user
+    if (credential.type === 'FINGERPRINT') {
+      user.biometricCredentials = user.biometricCredentials.filter(
+        (c) => c.credentialId !== credential.credentialId
+      );
+    } else {
+      user.biometricCredentials = user.biometricCredentials.filter(
+        (c) => c.type !== credential.type
+      );
+    }
     user.biometricCredentials.push(credential);
 
     const { password: pw, ...safe } = user;
@@ -636,24 +652,11 @@ class UserServiceClass {
         faceHash.includes('invalid') ||
         faceHash === 'REJECT';
 
-      if (isMismatchTest) {
+      if (isMismatchTest || matched.faceHash !== faceHash) {
         return {
           success: false,
           message: 'Facial signature does not match enrolled biometric template. Please look directly at the camera.',
         };
-      }
-
-      if (matched.faceHash !== faceHash) {
-        // If hashes differ due to natural live optical camera exposure/framing variations,
-        // verify that both are valid authenticated facial signatures
-        const isValidEnrolled = matched.faceHash.startsWith('face_sig_') || matched.faceHash.startsWith('face_hash_');
-        const isValidSample = faceHash.startsWith('face_sig_') || faceHash.startsWith('face_hash_');
-        if (!isValidEnrolled || !isValidSample) {
-          return {
-            success: false,
-            message: 'Facial signature does not match enrolled biometric template. Please look directly at the camera.',
-          };
-        }
       }
     }
 
