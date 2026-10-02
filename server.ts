@@ -64,6 +64,13 @@ export type { PaginatedResult };
 function getAuthOrClientStatusCode(errMessage: string): number {
   const m = (errMessage || '').toLowerCase();
   if (
+    m.includes('concurrent_modification_conflict') ||
+    m.includes('concurrency') ||
+    m.includes('conflict')
+  ) {
+    return 409;
+  }
+  if (
     m.includes('role violation') ||
     m.includes('department restriction') ||
     m.includes('unauthorized') ||
@@ -645,11 +652,29 @@ app.post('/api/regulatory/submissions', (req, res) => {
 
 // Update draft values & dynamic rows
 app.put('/api/regulatory/submissions/:id', (req, res) => {
-  const { values, dynamicRows, user } = req.body;
+  const { values, dynamicRows, user, expectedVersion } = req.body;
   const activeUser = user || DEMO_USERS[0];
   try {
-    const updated = submissionService.updateDraft(req.params.id, values || {}, dynamicRows || {}, activeUser);
+    const updated = submissionService.updateDraft(
+      req.params.id,
+      values || {},
+      dynamicRows || {},
+      activeUser,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
     res.json(updated);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Reuse historical/submitted report as new draft
+app.post('/api/regulatory/submissions/:id/reuse', (req, res) => {
+  const { user } = req.body;
+  const activeUser = user || DEMO_USERS[0];
+  try {
+    const reused = submissionService.reuseSubmission(req.params.id, activeUser);
+    res.status(201).json(reused);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
@@ -667,10 +692,15 @@ app.post('/api/regulatory/submissions/:id/validate', (req, res) => {
 
 // Maker submit to Checker
 app.post('/api/regulatory/submissions/:id/submit', (req, res) => {
-  const { user, comment } = req.body;
+  const { user, comment, expectedVersion } = req.body;
   const activeUser = user || DEMO_USERS[0];
   try {
-    const updated = submissionService.submitToChecker(req.params.id, activeUser, comment);
+    const updated = submissionService.submitToChecker(
+      req.params.id,
+      activeUser,
+      comment,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
     res.json(updated);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });

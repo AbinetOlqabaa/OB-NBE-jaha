@@ -4,6 +4,30 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [23.1.0-phase23-maker-draft-edit-save-resubmit-lifecycle] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 23: Maker Draft/Edit/Save/Resubmit & Reuse Lifecycle (`submissionService.ts`, `DynamicReportForm.tsx`, `MakerWorkspace.tsx`, `server.ts`, `src/types/regulatory.ts`, `src/tests/phase23-maker-draft-lifecycle.test.ts`)**:
+  - **Complete Primary Lifecycle (`CREATE → EDIT → SAVE DRAFT → LEAVE → RETURN → CONTINUE → VALIDATE → SUBMIT`)**:
+    - **Draft Creation**: Authorized Makers create report drafts initialized at v1 with cryptographic integrity seals and immutable `CREATE_DRAFT` audit records.
+    - **Persistent Edit & Save**: Edits update values and dynamic schedules, auto-calculate formulas, increment version, and persist to backend and IndexedDB with `UPDATE_DRAFT` audit tracking.
+    - **Leave & Return Safety**: Maker can safely leave the form; uncommitted changes are auto-persisted to prevent data loss. Returning to the workspace seamlessly reopens the exact persisted draft version with all input values preserved.
+    - **Validation & Submit**: Real-time Zod and ValidationEngine checks gate submission to Checker (`PENDING_CHECKER`), capturing an immutable historical snapshot.
+  - **Returned for Correction & Resubmission Lifecycle (`CORRECTION_REQUIRED → EDIT & CORRECT → RESUBMIT`)**:
+    - When a Checker reviews and requests corrections, report transitions to `CORRECTION_REQUIRED` with supervisory notes attached.
+    - Maker reopens returned report, updates values and dynamic schedules, validates, and resubmits to Checker with `RESUBMIT_TO_CHECKER` audit logging.
+  - **Submitted Report Immutability & "Reuse as New" Lifecycle (`SUBMITTED REPORT → REUSE AS NEW → NEW DRAFT → MODIFY → SAVE → SUBMIT`)**:
+    - **Strict In-Place Mutation Prevention**: Direct edit attempts on submitted/final reports (`SENT`, `APPROVED`, `SENDING`) are strictly blocked with descriptive errors; submitted reports are permanently sealed.
+    - **Reuse as New Mechanism**: Maker invokes `reuseSubmission(id, user)` which creates a brand-new report identity (status `DRAFT`, version 1) pre-populated with baseline values and dynamic rows, while linking `reusedFromSubmissionId` and `reusedFromVersion`.
+    - **Source Preservation Invariant**: Verified that source report values, integrity hash, and status remain 100% untouched and unchanged.
+    - **Full Workflow Support**: The new reused report is completely editable, saveable, validatable, and submittable as a new regulatory return.
+  - **Optimistic Concurrency & Multi-Tab Conflict Locking**:
+    - Enforced `expectedVersion` checking on `updateDraft` and `submitToChecker`; concurrent tab conflicts throw `CONCURRENT_MODIFICATION_CONFLICT` (HTTP 409 Conflict) preventing silent overwriting of edits.
+  - **Automated Acceptance Test Coverage**:
+    - 100% passing across all 6 test suites in `phase23-maker-draft-lifecycle.test.ts`.
+
+---
+
 ## [23.0.0-phase21-22-23-dynamic-report-form-validation-xlsx-autosave] - 2026-10-02
 
 ### Added & Enhanced

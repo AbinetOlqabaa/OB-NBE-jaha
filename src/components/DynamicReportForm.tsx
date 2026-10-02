@@ -47,6 +47,7 @@ import {
   Database,
   Clock,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 
 interface DynamicReportFormProps {
@@ -55,8 +56,9 @@ interface DynamicReportFormProps {
   currentUser: UserSession;
   readOnly?: boolean;
   onBack: () => void;
-  onSave: (values: Record<string, string | number>, dynamicRows: Record<number, DynamicRowRecord[]>) => void;
-  onSubmitToChecker: (comment: string) => void;
+  onSave: (values: Record<string, string | number>, dynamicRows: Record<number, DynamicRowRecord[]>, expectedVersion?: number) => void;
+  onSubmitToChecker: (comment: string, expectedVersion?: number) => void;
+  onReuseSubmission?: (submissionId: string) => void;
 }
 
 export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
@@ -67,6 +69,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
   onBack,
   onSave,
   onSubmitToChecker,
+  onReuseSubmission,
 }) => {
   // Use immutable template snapshot if present to maintain regulatory integrity
   const metadata = submission.templateSnapshot || passedMetadata;
@@ -280,7 +283,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
         isOffline: true,
       });
 
-      onSave(calculated, dynamicRowsRef.current);
+      onSave(calculated, dynamicRowsRef.current, submission.version);
       setHasUnsavedChanges(false);
       hasUnsavedChangesRef.current = false;
       const savedTime = new Date().toLocaleTimeString();
@@ -411,7 +414,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
     vibrate(30);
     const calculated = recalculateAndValidate(values, dynamicRows);
     setValues(calculated);
-    onSave(calculated, dynamicRows);
+    onSave(calculated, dynamicRows, submission.version);
     setHasUnsavedChanges(false);
     hasUnsavedChangesRef.current = false;
     setAutoSaveCountdown(AUTO_SAVE_INTERVAL_SECONDS);
@@ -439,6 +442,14 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
       `Draft persisted to local IndexedDB (Protected for remote NBE site visits) at ${savedTime}`
     );
     setTimeout(() => setSaveFeedback(null), 4000);
+  };
+
+  const handleBackWithSafety = () => {
+    if (hasUnsavedChanges && !isEffectiveReadOnly) {
+      const calculated = recalculateAndValidate(values, dynamicRows);
+      onSave(calculated, dynamicRows, submission.version);
+    }
+    onBack();
   };
 
   const handleExportExcel = () => {
@@ -513,9 +524,9 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
-            onClick={onBack}
+            onClick={handleBackWithSafety}
             className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer touch-manipulation touch-press shrink-0"
-            title="Back to Catalog"
+            title="Back to Catalog (Auto-saves draft if modified)"
             aria-label="Back to Catalog"
           >
             <ArrowLeft className="w-5 h-5 sm:w-4 sm:h-4" />
@@ -556,6 +567,19 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto flex-wrap">
+          {/* Reuse as New for submitted/final returns */}
+          {onReuseSubmission && (submission.status === 'SENT' || submission.status === 'APPROVED' || readOnly) && (
+            <button
+              type="button"
+              onClick={() => onReuseSubmission(submission.id)}
+              className="min-h-[44px] sm:min-h-[34px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-ob-indigo-600 hover:bg-ob-indigo-700 rounded-xl sm:rounded-lg transition-colors shadow-2xs cursor-pointer touch-manipulation touch-press"
+              title="Create a new draft using this submitted report as template (source report remains 100% immutable)"
+            >
+              <Sparkles className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-ob-indigo-200" />
+              <span>Reuse as New</span>
+            </button>
+          )}
+
           {/* Download as Signed PDF button */}
           <button
             type="button"
@@ -631,12 +655,56 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                 }`}
               >
                 <Send className="w-4 h-4 sm:w-3 sm:h-3" />
-                <span>Submit to Checker</span>
+                <span>{submission.status === 'CORRECTION_REQUIRED' ? 'Resubmit to Checker' : 'Submit to Checker'}</span>
               </button>
             </>
           )}
         </div>
       </div>
+
+      {/* Maker Lifecycle Indicator Bar */}
+      <div className="bg-slate-50 dark:bg-slate-850 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-[10px] font-medium flex items-center justify-between gap-2 overflow-x-auto select-none shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 text-slate-500 dark:text-slate-400 font-mono">
+          <span className="font-bold text-slate-700 dark:text-slate-200">Lifecycle:</span>
+          <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold">1. CREATE</span>
+          <span>→</span>
+          <span className={`px-1.5 py-0.5 rounded font-semibold ${hasUnsavedChanges ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-700' : 'bg-slate-200 dark:bg-slate-700'}`}>2. EDIT</span>
+          <span>→</span>
+          <span className={`px-1.5 py-0.5 rounded font-semibold ${!hasUnsavedChanges && !isEffectiveReadOnly ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700' : 'bg-slate-200 dark:bg-slate-700'}`}>3. SAVE DRAFT</span>
+          <span>→</span>
+          <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700">4. LEAVE / RETURN</span>
+          <span>→</span>
+          <span className={`px-1.5 py-0.5 rounded font-semibold ${validation?.isValid ? 'bg-ob-indigo-100 dark:bg-ob-indigo-950 text-ob-indigo-800 dark:text-ob-indigo-300 font-bold' : 'bg-slate-200 dark:bg-slate-700'}`}>5. VALIDATE</span>
+          <span>→</span>
+          <span className={`px-1.5 py-0.5 rounded font-semibold ${submission.status === 'PENDING_CHECKER' || submission.status === 'APPROVED' || submission.status === 'SENT' ? 'bg-emerald-600 text-white font-bold' : 'bg-slate-200 dark:bg-slate-700'}`}>
+            {submission.status === 'CORRECTION_REQUIRED' ? '6. RESUBMIT' : '6. SUBMIT'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-slate-500">Return: <strong>{metadata.Code}</strong></span>
+          <span className="font-mono text-slate-500">v{submission.version}</span>
+        </div>
+      </div>
+
+      {/* Reused Report Banner */}
+      {submission.reusedFromSubmissionId && (
+        <div className="bg-ob-indigo-50 dark:bg-ob-indigo-950/60 border border-ob-indigo-200 dark:border-ob-indigo-800 px-3 py-1.5 rounded-lg text-xs flex items-center justify-between text-ob-indigo-900 dark:text-ob-indigo-200 shrink-0 animate-in fade-in">
+          <div className="flex items-center gap-2 font-semibold">
+            <Sparkles className="w-4 h-4 text-ob-indigo-600 dark:text-ob-indigo-400 shrink-0" />
+            <span>Reused from submitted return <strong>{submission.reusedFromSubmissionId}</strong> (v{submission.reusedFromVersion}). You are editing an independent new draft. The source submission is permanently sealed and untouched.</span>
+          </div>
+        </div>
+      )}
+
+      {/* Returned for Correction Banner */}
+      {submission.status === 'CORRECTION_REQUIRED' && (
+        <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 px-3 py-1.5 rounded-lg text-xs flex items-center justify-between text-amber-900 dark:text-amber-200 shrink-0 animate-in fade-in">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>Returned for Correction by Checker: {submission.comments?.[submission.comments.length - 1]?.comment || 'Please update the requested fields and click Resubmit to Checker.'}</span>
+          </div>
+        </div>
+      )}
 
       {/* 2. Notification Toast if active */}
       {saveFeedback && (
