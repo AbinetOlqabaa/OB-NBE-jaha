@@ -104,9 +104,12 @@ export class SessionServiceClass {
   private initCleanupInterval(): void {
     // Periodically purge expired or revoked sessions older than 7 days
     if (typeof setInterval !== 'undefined') {
-      setInterval(() => {
+      const timer = setInterval(() => {
         this.purgeExpiredSessions();
       }, 3600 * 1000); // Once per hour
+      if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+        (timer as any).unref();
+      }
     }
   }
 

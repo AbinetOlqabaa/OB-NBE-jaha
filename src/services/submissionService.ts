@@ -601,6 +601,10 @@ class SubmissionServiceClass {
    * 2. Maker must be assigned to the department that owns this report,
    *    OR have been granted special access by the Administrator.
    */
+  public createDraft(reportKey: string, user: UserSession): ReportSubmission {
+    return this.createSubmission(reportKey, user);
+  }
+
   public createSubmission(reportKey: string, user: UserSession): ReportSubmission {
     const report = getReportByKey(reportKey);
     if (!report) {
@@ -718,7 +722,10 @@ class SubmissionServiceClass {
       idempotencyKey: 'idemp_' + id + '_v1',
     };
 
-    const isOnline = typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
+    const isOnline =
+      typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+        ? navigator.onLine
+        : true;
     submission.syncStatus = isOnline ? 'SYNCED' : 'PENDING_SYNC';
     submission.isOfflineDraft = !isOnline;
     submission.offlineSavedAt = now;
@@ -897,7 +904,10 @@ class SubmissionServiceClass {
       integrityHash,
     };
 
-    const isOnline = typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
+    const isOnline =
+      typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+        ? navigator.onLine
+        : true;
     const updated: ReportSubmission = {
       ...sub,
       version: nextVersion,
@@ -1087,7 +1097,10 @@ class SubmissionServiceClass {
       idempotencyKey: 'idemp_' + newId + '_v1',
     };
 
-    const isOnline = typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
+    const isOnline =
+      typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+        ? navigator.onLine
+        : true;
     newSubmission.syncStatus = isOnline ? 'SYNCED' : 'PENDING_SYNC';
     newSubmission.isOfflineDraft = !isOnline;
     newSubmission.offlineSavedAt = now;
@@ -1329,6 +1342,15 @@ class SubmissionServiceClass {
    * 1. Only CHECKERS can review. (Makers cannot approve; Admins are read-only).
    * 2. Checker must be from the same department, OR have Admin-granted special access.
    */
+  public approveSubmission(
+    id: string,
+    user: UserSession,
+    commentText?: string,
+    expectedVersion?: number
+  ): ReportSubmission {
+    return this.reviewSubmission(id, 'APPROVE', user, commentText);
+  }
+
   public reviewSubmission(
     id: string,
     action: 'APPROVE' | 'REJECT' | 'REQUEST_CORRECTION',
