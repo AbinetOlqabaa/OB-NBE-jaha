@@ -369,8 +369,14 @@ import { runPhase22XlsxSheetJsExportTests } from './phase22-xlsx-sheetjs-export.
 import { runPhase23IndexedDbAutoSaveTests } from './phase23-indexeddb-autosave.test.ts';
 import { runPhase23MakerDraftLifecycleTests } from './phase23-maker-draft-lifecycle.test.ts';
 import { runPhase24ZodRealtimeValidationTests } from './phase24-zod-realtime-validation.test.ts';
+import { runPhase24ValidationRemediationAssistantTests } from './phase24-validation-remediation-assistant.test.ts';
 import { runPhase25XlsxNbeOfflineExportTests } from './phase25-xlsx-nbe-offline-export.test.ts';
+import { runPhase25LibraryCoreAndMakerLibraryTests } from './phase25-library-core-architecture-maker-library.test.ts';
 import { runPhase26PasswordAndPriorEnrollmentBiometricResetTests } from './phase26-password-and-prior-enrollment-biometric-reset.test.ts';
+import { runPhase26LibraryRoleBasedWorkflowsAndDeletionGovernanceTests } from './phase26-library-role-based-workflows-and-deletion-governance.test.ts';
+import { runPhase27SsotAutosavePersistenceRecoveryTests } from './phase27-ssot-autosave-persistence-recovery.test.ts';
+import { runPhase28LogoutConfirmationAndDashboardResponsibilityCleanupTests } from './phase28-logout-confirmation-and-dashboard-responsibility-cleanup.test.ts';
+import { runPhase29RememberMeEndToEndAuthenticationTests } from './phase29-remember-me-end-to-end-authentication.test.ts';
 import { runXlsxExportAndDynamicValidationTests } from './xlsx-export-and-dynamic-validation.test.ts';
 
 async function runFullApplicationTestSuite() {
@@ -397,8 +403,14 @@ async function runFullApplicationTestSuite() {
   await runPhase23IndexedDbAutoSaveTests();
   await runPhase23MakerDraftLifecycleTests();
   await runPhase24ZodRealtimeValidationTests();
+  await runPhase24ValidationRemediationAssistantTests();
   await runPhase25XlsxNbeOfflineExportTests();
+  await runPhase25LibraryCoreAndMakerLibraryTests();
   await runPhase26PasswordAndPriorEnrollmentBiometricResetTests();
+  await runPhase26LibraryRoleBasedWorkflowsAndDeletionGovernanceTests();
+  await runPhase27SsotAutosavePersistenceRecoveryTests();
+  await runPhase28LogoutConfirmationAndDashboardResponsibilityCleanupTests();
+  await runPhase29RememberMeEndToEndAuthenticationTests();
   await runXlsxExportAndDynamicValidationTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();

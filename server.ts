@@ -6,6 +6,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import dotenv from 'dotenv';
@@ -30,6 +31,8 @@ import { bulkOperationsEngine } from './src/services/bulkOperationsEngine.ts';
 import { realtimeSsotEngine } from './src/services/realtimeSsotEngine.ts';
 import { configurationGovernanceService } from './src/services/configurationGovernanceService.ts';
 import { biometricService } from './src/services/biometricService.ts';
+import { ValidationRemediationService } from './src/services/validationRemediationService.ts';
+import { sessionService } from './src/services/sessionService.ts';
 
 dotenv.config();
 
@@ -84,6 +87,8 @@ function getAuthOrClientStatusCode(errMessage: string): number {
     m.includes('only the maker') ||
     m.includes('only auditor') ||
     m.includes('review denied') ||
+    m.includes('forbidden') ||
+    m.includes('cannot delete') ||
     m.includes('denied')
   ) {
     return 403;
@@ -624,14 +629,214 @@ app.get('/api/regulatory/submissions', (req, res) => {
   res.json(submissions);
 });
 
-// Get submission by ID
+// Phase 25: Authoritative Library Query Endpoint (Requirements 1, 2, 7, 10)
+app.get('/api/regulatory/library', (req, res) => {
+  const {
+    search,
+    lifecycleState,
+    status,
+    reportType,
+    frequency,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+    page,
+    pageSize,
+    limit,
+    userId,
+    userEmail,
+  } = req.query as any;
+
+  // Resolve requesting user session
+  let activeUser = DEMO_USERS[0];
+  if (userEmail) {
+    const found = userService.getByEmail(userEmail);
+    if (found) activeUser = found as any;
+  } else if (userId) {
+    const found = userService.getById(userId);
+    if (found) activeUser = found as any;
+  }
+
+  const result = submissionService.queryLibrary(activeUser, {
+    search,
+    lifecycleState,
+    status,
+    reportType,
+    frequency,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+    page: page ? Number(page) : undefined,
+    pageSize: pageSize || limit ? Number(pageSize || limit) : undefined,
+  });
+
+  res.json(result);
+});
+
+// Delete Draft Submission Endpoint (Requirements 5, 6, 9, 10)
+app.delete('/api/regulatory/submissions/:id', (req, res) => {
+  const { user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const deleted = submissionService.deleteSubmission(req.params.id, activeUser);
+    if (deleted) {
+      res.json({ success: true, message: 'Draft deleted successfully' });
+    } else {
+      res.status(404).json({ error: 'Submission not found' });
+    }
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Get submission by ID (with authoritative cross-department isolation)
 app.get('/api/regulatory/submissions/:id', (req, res) => {
-  const sub = submissionService.getById(req.params.id);
-  if (!sub) {
-    res.status(404).json({ error: 'Submission not found' });
+  const { userEmail, userId } = req.query as any;
+  let activeUser = req.body && req.body.user ? req.body.user : null;
+  if (!activeUser) {
+    if (userEmail) activeUser = userService.getByEmail(userEmail as string);
+    else if (userId) activeUser = userService.getById(userId as string);
+  }
+  if (!activeUser) activeUser = DEMO_USERS[0];
+
+  try {
+    const sub = submissionService.getAuthorizedSubmission(req.params.id, activeUser);
+    res.json(sub);
+  } catch (err: any) {
+    const status = err.message.includes('not found') ? 404 : 403;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Removal Impact Assessment for Admin (Requirement 8)
+app.get('/api/regulatory/submissions/:id/removal-impact', (req, res) => {
+  const { userEmail, userId } = req.query as any;
+  let activeUser = req.body && req.body.user ? req.body.user : null;
+  if (!activeUser) {
+    if (userEmail) activeUser = userService.getByEmail(userEmail as string);
+    else if (userId) activeUser = userService.getById(userId as string);
+  }
+  if (!activeUser) activeUser = DEMO_USERS[0];
+
+  try {
+    const assessment = submissionService.getRemovalImpactAssessment(req.params.id, activeUser);
+    res.json(assessment);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Admin Governed Removal / Archiving / Voiding (Requirements 7 & 8)
+app.post('/api/regulatory/submissions/:id/admin-remove', (req, res) => {
+  const { action, reason, confirmed, user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const result = submissionService.adminGovernedRemoveSubmission(req.params.id, activeUser, {
+      action,
+      reason,
+      confirmed: Boolean(confirmed),
+    });
+    res.json(result);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Flag Submission for Review (Requirement 1)
+app.post('/api/regulatory/submissions/:id/flag', (req, res) => {
+  const { reason, flag, user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const updated = submissionService.flagSubmission(
+      req.params.id,
+      activeUser,
+      reason || 'Flagged for compliance review',
+      flag !== undefined ? Boolean(flag) : true
+    );
+    res.json(updated);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Add Review/Audit Comment (Requirements 1 & 2)
+app.post('/api/regulatory/submissions/:id/comment', (req, res) => {
+  const { text, category, user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  if (!text || !text.trim()) {
+    res.status(400).json({ error: 'Comment text is required.' });
     return;
   }
-  res.json(sub);
+
+  try {
+    const updated = submissionService.addSubmissionComment(
+      req.params.id,
+      activeUser,
+      text.trim(),
+      category || 'GENERAL'
+    );
+    res.json(updated);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Dossier Audit Events Inspection (Requirement 2)
+app.get('/api/regulatory/submissions/:id/audit-events', (req, res) => {
+  const { userEmail, userId } = req.query as any;
+  let activeUser = req.body && req.body.user ? req.body.user : null;
+  if (!activeUser) {
+    if (userEmail) activeUser = userService.getByEmail(userEmail as string);
+    else if (userId) activeUser = userService.getById(userId as string);
+  }
+  if (!activeUser) activeUser = DEMO_USERS[0];
+
+  try {
+    submissionService.getAuthorizedSubmission(req.params.id, activeUser);
+    const events = auditService.query({ entityId: req.params.id });
+    res.json({ events });
+  } catch (err: any) {
+    const status = err.message.includes('not found') ? 404 : 403;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // Create new report draft
@@ -680,10 +885,60 @@ app.post('/api/regulatory/submissions/:id/reuse', (req, res) => {
   }
 });
 
-// Validate submission
+// Validate submission (authoritative summary)
 app.post('/api/regulatory/submissions/:id/validate', (req, res) => {
   try {
     const summary = submissionService.validateSubmission(req.params.id);
+    res.json(summary);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Normalized Validation & Remediation Assistant Inspection
+app.get('/api/regulatory/submissions/:id/remediation', (req, res) => {
+  try {
+    const normalizedSummary = submissionService.validateSubmissionNormalized(req.params.id);
+    res.json(normalizedSummary);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Remediation Auto-Fix Execution
+app.post('/api/regulatory/submissions/:id/remediation/apply', (req, res) => {
+  const { proposedFix, user, expectedVersion } = req.body;
+  const activeUser = user || DEMO_USERS[0];
+  try {
+    if (!proposedFix) {
+      res.status(400).json({ error: 'Missing proposedFix payload' });
+      return;
+    }
+    const result = submissionService.remediateSubmission(
+      req.params.id,
+      proposedFix,
+      activeUser,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
+    res.json(result);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Real-Time Payload Validation without Persisting
+app.post('/api/regulatory/validate-payload', (req, res) => {
+  const { metadata, values, dynamicRows } = req.body;
+  try {
+    if (!metadata) {
+      res.status(400).json({ error: 'Missing report metadata' });
+      return;
+    }
+    const summary = ValidationRemediationService.normalizeReportValidation(
+      metadata,
+      values || {},
+      dynamicRows || {}
+    );
     res.json(summary);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
@@ -802,13 +1057,23 @@ app.get('/api/regulatory/submissions/:id/export/xlsx', (req, res) => {
 // -------------------------------------------------------------
 
 app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, rememberMe } = req.body;
   if (!email || !password) {
     res.status(400).json({ success: false, message: 'Corporate email and password are required to sign in.' });
     return;
   }
-  const result = userService.login(email, password);
+  const deviceInfo = (req.headers['user-agent'] as string) || 'Institutional Workstation';
+  const result = userService.login(email, password, Boolean(rememberMe), deviceInfo);
+
   if (result.success && result.user) {
+    // If Remember Me was requested, set secure HttpOnly cookie
+    if (result.rememberMe && result.persistentSession) {
+      res.setHeader('Set-Cookie', result.persistentSession.cookieHeader);
+    } else {
+      // If unchecked, ensure any leftover persistent cookie is cleared
+      res.setHeader('Set-Cookie', sessionService.formatClearedCookieHeader());
+    }
+
     auditService.log({
       actorId: result.user.id,
       actorName: result.user.name,
@@ -817,12 +1082,119 @@ app.post('/api/auth/login', (req, res) => {
       entityType: 'AUTH',
       entityId: result.user.id,
       correlationId: `corr_auth_${Date.now()}`,
-      details: `User logged in successfully as ${result.user.role}`,
+      details: `User logged in successfully as ${result.user.role}. Remember Me: ${Boolean(rememberMe)}. (Req 1, 4)`,
     });
     res.json(result);
   } else {
     res.status(401).json(result);
   }
+});
+
+// Phase 29: Persistent Session Verification Endpoint (Req 4, 6, 7, 8, 9, 10, 12)
+app.get('/api/auth/session', (req, res) => {
+  const cookieHeader = req.headers.cookie;
+  let token = sessionService.extractTokenFromCookieHeader(cookieHeader);
+  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+    token = req.headers.authorization.slice(7).trim();
+  }
+  if (!token && req.headers['x-remember-token']) {
+    token = String(req.headers['x-remember-token']).trim();
+  }
+
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      code: 'NO_SESSION',
+      message: 'No active persistent session found.',
+    });
+    return;
+  }
+
+  const ver = sessionService.verifyToken(token, { updateLastUsed: true });
+  if (!ver.valid || !ver.user || !ver.session) {
+    res.setHeader('Set-Cookie', sessionService.formatClearedCookieHeader());
+    res.status(401).json({
+      success: false,
+      code: ver.code || 'TOKEN_INVALID',
+      message: ver.message || 'Session verification failed.',
+    });
+    return;
+  }
+
+  // Session is valid
+  res.json({
+    success: true,
+    user: ver.user,
+    session: {
+      id: ver.session.id,
+      expiresAt: ver.session.expiresAt,
+      lastUsedAt: ver.session.lastUsedAt,
+      createdAt: ver.session.createdAt,
+      deviceInfo: ver.session.deviceInfo,
+    },
+    requiresBiometricVerification: ver.requiresBiometricVerification,
+  });
+});
+
+// Phase 29: Explicit Logout Endpoint (Req 8)
+app.post('/api/auth/logout', (req, res) => {
+  const cookieHeader = req.headers.cookie;
+  let token = sessionService.extractTokenFromCookieHeader(cookieHeader);
+  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+    token = req.headers.authorization.slice(7).trim();
+  }
+  if (!token && req.headers['x-remember-token']) {
+    token = String(req.headers['x-remember-token']).trim();
+  }
+  const sessionId = req.body?.sessionId || token;
+
+  if (sessionId) {
+    sessionService.revokeSession(sessionId, 'EXPLICIT_LOGOUT');
+  }
+
+  res.setHeader('Set-Cookie', sessionService.formatClearedCookieHeader());
+  res.json({
+    success: true,
+    message: 'Explicit portal sign out complete. Persistent session permanently invalidated. (Req 8)',
+  });
+});
+
+// Phase 29: List Active Sessions for User (Req 7, 11)
+app.get('/api/auth/sessions', (req, res) => {
+  const email = (req.query.email as string) || '';
+  if (!email) {
+    res.status(400).json({ success: false, message: 'Email query parameter required.' });
+    return;
+  }
+  const activeSessions = sessionService.getUserActiveSessions(email);
+  res.json({
+    success: true,
+    sessions: activeSessions.map((s) => ({
+      id: s.id,
+      deviceInfo: s.deviceInfo,
+      createdAt: s.createdAt,
+      lastUsedAt: s.lastUsedAt,
+      expiresAt: s.expiresAt,
+      isRevoked: s.isRevoked,
+    })),
+  });
+});
+
+// Phase 29: Revoke Session Endpoint (Req 7, 11)
+app.post('/api/auth/sessions/revoke', (req, res) => {
+  const { sessionId, email, revokeAll } = req.body;
+  if (revokeAll && email) {
+    const result = sessionService.revokeAllUserSessions(email, 'ADMIN_REVOCATION');
+    res.json({ success: true, message: `All ${result.revokedCount} active sessions revoked.` });
+    return;
+  }
+  if (sessionId) {
+    const rev = sessionService.revokeSession(sessionId, 'ADMIN_REVOCATION');
+    res.setHeader('Set-Cookie', rev.clearedCookieHeader);
+    res.json({ success: true, message: rev.message });
+    return;
+  }
+  res.status(400).json({ success: false, message: 'sessionId or email with revokeAll required.' });
 });
 
 // Development Seed Data Reset Endpoint
@@ -2421,7 +2793,7 @@ app.post('/api/bulk/export', (req, res) => {
 });
 
 // System Health
-app.get('/api/health', (req, res) => {
+const healthHandler = (_req: express.Request, res: express.Response) => {
   res.json({
     status: 'ONLINE',
     service: 'Oromia Bank NBE Platform',
@@ -2431,13 +2803,19 @@ app.get('/api/health', (req, res) => {
     uptimeSeconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
-});
+};
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler);
+app.get('/healthz', healthHandler);
 
 // -------------------------------------------------------------
 // DEV / PROD SERVER BOOTSTRAP
 // -------------------------------------------------------------
 
 function ensureDjangoSimulatorRunning() {
+  if (process.env.NODE_ENV === 'production' || process.env.K_SERVICE) {
+    return;
+  }
   const checkUrl = 'http://127.0.0.1:8001/api/v1/nbe-simulator/gateway-health';
   fetch(checkUrl, { signal: AbortSignal.timeout(1500) })
     .then((r) => {
@@ -2466,19 +2844,30 @@ function ensureDjangoSimulatorRunning() {
 async function startServer() {
   ensureDjangoSimulatorRunning();
 
-  if (process.env.NODE_ENV !== 'production') {
+  const isCloudRun = Boolean(process.env.K_SERVICE);
+  const distIndexHtml = path.resolve(__dirname, 'dist', 'index.html');
+  const distExists = fs.existsSync(distIndexHtml);
+
+  if (distExists) {
+    // Production / pre-built static serving
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path.startsWith('/ws/')) {
+        return next();
+      }
+      if (fs.existsSync(distIndexHtml)) {
+        return res.sendFile(distIndexHtml);
+      }
+      return next();
+    });
+  } else {
+    // Vite middleware mode for development or when dist not yet built
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    // Production static serving
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
   }
 
   const server = http.createServer(app);
