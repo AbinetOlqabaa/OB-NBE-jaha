@@ -33,6 +33,10 @@ import { configurationGovernanceService } from './src/services/configurationGove
 import { biometricService } from './src/services/biometricService.ts';
 import { ValidationRemediationService } from './src/services/validationRemediationService.ts';
 import { sessionService } from './src/services/sessionService.ts';
+import { nbeReportPackageService } from './src/services/nbeReportPackageNormalizer.ts';
+import { nbeEndpointRegistry } from './src/services/nbeEndpointRegistry.ts';
+import { notificationService } from './src/services/notificationService.ts';
+import type { UserSession } from './src/types/regulatory.ts';
 
 dotenv.config();
 
@@ -89,6 +93,8 @@ function getAuthOrClientStatusCode(errMessage: string): number {
     m.includes('review denied') ||
     m.includes('forbidden') ||
     m.includes('cannot delete') ||
+    m.includes('report_definition_immutable') ||
+    m.includes('immutable') ||
     m.includes('denied')
   ) {
     return 403;
@@ -232,7 +238,7 @@ app.post('/api/config/reports/:key/versions', (req, res) => {
     const newVersion = configService.createReportVersion(req.params.key, req.body, actor);
     res.status(201).json(newVersion);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -247,7 +253,7 @@ app.post('/api/config/reports', (req, res) => {
     const result = configService.createReportDefinition(req.body, actor);
     res.status(201).json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -258,7 +264,7 @@ app.put('/api/config/reports/:key', (req, res) => {
     const updated = configService.updateReportDefinition(req.params.key, req.body, actor);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -269,7 +275,7 @@ app.post('/api/config/reports/:key/retire', (req, res) => {
     const retired = configService.retireReport(req.params.key, actor, req.body.reason);
     res.json(retired);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -280,7 +286,7 @@ app.post('/api/config/reports/:key/versions/draft', (req, res) => {
     const draft = configService.createDraftVersion(req.params.key, req.body, actor);
     res.status(201).json(draft);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -292,7 +298,7 @@ app.put('/api/config/reports/:key/versions/:version', (req, res) => {
     const updated = configService.updateDraftVersion(req.params.key, vNum, req.body, actor);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -303,7 +309,7 @@ app.post('/api/config/reports/:key/versions/:version/validate', (req, res) => {
     const result = configService.validateReportVersion(req.params.key, vNum);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -314,7 +320,7 @@ app.get('/api/config/reports/:key/versions/:version/preview', (req, res) => {
     const preview = configService.previewReportVersion(req.params.key, vNum);
     res.json(preview);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -326,7 +332,121 @@ app.post('/api/config/reports/:key/versions/:version/publish', (req, res) => {
     const published = configService.publishReportVersion(req.params.key, vNum, actor, req.body.changelogSummary);
     res.json(published);
   } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// NBE JSON REPORT PACKAGE IMPORT & SCHEMA NORMALIZATION (Phase 31)
+// ============================================================================
+
+// Validate NBE report JSON package without mutating configuration
+app.post('/api/config/nbe-package/validate', (req, res) => {
+  try {
+    const payload = req.body.package !== undefined ? req.body.package : req.body;
+    const result = nbeReportPackageService.validatePackage(payload);
+    res.json(result);
+  } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin imports NBE report JSON package and creates governed DRAFT configuration
+app.post('/api/config/nbe-package/import', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  if (!actor || actor.role !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: Administrator role is strictly required to import NBE report JSON packages.',
+      code: 'UNAUTHORIZED_ACCESS',
+    });
+    return;
+  }
+
+  try {
+    const payload = req.body.package !== undefined ? req.body.package : req.body;
+    const imported = nbeReportPackageService.importPackageAsDraft(payload, actor);
+    res.status(201).json(imported);
+  } catch (err: any) {
+    const statusCode = err.message?.includes('Unauthorized') ? 403 : 400;
+    res.status(statusCode).json({ error: err.message });
+  }
+});
+
+// List all auditable imported source artifacts
+app.get('/api/config/nbe-package/artifacts', (req, res) => {
+  try {
+    const artifacts = nbeReportPackageService.getAllArtifacts();
+    res.json(artifacts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Retrieve specific imported source artifact by hash
+app.get('/api/config/nbe-package/artifacts/:hash', (req, res) => {
+  try {
+    const artifact = nbeReportPackageService.getArtifactByHash(req.params.hash);
+    if (!artifact) {
+      res.status(404).json({ error: `NBE package artifact with hash '${req.params.hash}' not found.` });
+      return;
+    }
+    res.json(artifact);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// DYNAMIC NBE API ENDPOINT REGISTRY (Phase 32)
+// ============================================================================
+
+// List all configured report endpoints
+app.get('/api/config/nbe-endpoints', (req, res) => {
+  try {
+    const activeOnly = req.query.activeOnly === 'true';
+    const endpoints = nbeEndpointRegistry.getAllEndpoints({ activeOnly });
+    res.json(endpoints);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get endpoint configuration for a specific report
+app.get('/api/config/nbe-endpoints/:key', (req, res) => {
+  try {
+    const endpoint = nbeEndpointRegistry.getEndpointForReport(req.params.key);
+    res.json(endpoint);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin updates endpoint configuration for a report
+app.put('/api/config/nbe-endpoints/:key', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  if (!actor || actor.role !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: Administrator role is required to modify NBE API integration endpoint.',
+      code: 'UNAUTHORIZED_ACCESS',
+    });
+    return;
+  }
+
+  try {
+    const updated = nbeEndpointRegistry.updateReportEndpoint(req.params.key, req.body.integration || req.body, actor);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// List managed authentication profile references (zero secret material exposed)
+app.get('/api/config/nbe-auth-profiles', (req, res) => {
+  try {
+    const profiles = nbeEndpointRegistry.getAuthProfiles();
+    res.json(profiles);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -566,18 +686,68 @@ app.get('/api/governance/proposals/:id/explain', (req, res) => {
   }
 });
 
-// Get user notifications
-app.get('/api/governance/notifications', (req, res) => {
-  const userId = req.query.userId as string;
-  if (userId) {
-    res.json(configurationGovernanceService.getNotificationsForUser(userId));
-  } else {
-    res.json(configurationGovernanceService.getAllNotifications());
+// Helper to resolve requesting user for notifications
+function resolveRequestingUser(req: express.Request) {
+  const userId = (req.query.userId || req.headers['x-actor-id'] || req.body?.userId) as string;
+  const userEmail = (req.query.userEmail || req.headers['x-actor-email'] || req.body?.userEmail) as string;
+  const headerRole = (req.headers['x-actor-role'] || req.query.role || req.body?.role) as string;
+  const headerDept = (req.headers['x-actor-department'] || req.query.department || req.body?.department) as string;
+
+  let user: any = null;
+  if (userEmail) {
+    user = userService.getByEmail(userEmail);
   }
+  if (!user && userId) {
+    user = userService.getById(userId);
+  }
+  if (!user) {
+    user = {
+      id: userId || 'anonymous',
+      email: userEmail || '',
+      role: headerRole || 'MAKER',
+      department: headerDept || 'Credit Operations & Portfolio Management',
+      allowedReportKeys: [],
+    };
+  } else {
+    if (headerRole) user.role = headerRole;
+    if (headerDept) user.department = headerDept;
+  }
+  if (!user.allowedReportKeys || user.allowedReportKeys.length === 0) {
+    user.allowedReportKeys = userService.getAllowedReportKeysForUser(user);
+  }
+  return user;
+}
+
+// Authoritative Notification Center API (Phase 35)
+app.get('/api/notifications', (req, res) => {
+  const user = resolveRequestingUser(req);
+  const result = notificationService.getNotificationsForUser(user);
+  res.json(result);
+});
+
+// Mark single notification as read
+app.post('/api/notifications/:id/read', (req, res) => {
+  const success = notificationService.markAsRead(req.params.id);
+  res.json({ success });
+});
+
+// Mark all notifications as read for current user
+app.post('/api/notifications/read-all', (req, res) => {
+  const user = resolveRequestingUser(req);
+  const count = notificationService.markAllAsReadForUser(user);
+  res.json({ success: true, count });
+});
+
+// Get user governance notifications (backward compatibility with server-side filtering)
+app.get('/api/governance/notifications', (req, res) => {
+  const user = resolveRequestingUser(req);
+  const result = notificationService.getNotificationsForUser(user);
+  res.json(result.notifications);
 });
 
 // Mark notification as read
 app.post('/api/governance/notifications/:id/read', (req, res) => {
+  notificationService.markAsRead(req.params.id);
   configurationGovernanceService.markNotificationAsRead(req.params.id);
   res.json({ success: true });
 });
@@ -819,6 +989,27 @@ app.post('/api/regulatory/submissions/:id/comment', (req, res) => {
   }
 });
 
+// Phase 33: Reset Draft to Template Defaults (Requirement 10)
+app.post('/api/regulatory/submissions/:id/reset-defaults', (req, res) => {
+  const { user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const updated = submissionService.resetToTemplateDefaults(req.params.id, activeUser);
+    res.json(updated);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
 // Phase 26: Dossier Audit Events Inspection (Requirement 2)
 app.get('/api/regulatory/submissions/:id/audit-events', (req, res) => {
   const { userEmail, userId } = req.query as any;
@@ -859,6 +1050,40 @@ app.post('/api/regulatory/submissions', (req, res) => {
 app.put('/api/regulatory/submissions/:id', (req, res) => {
   const { values, dynamicRows, user, expectedVersion } = req.body;
   const activeUser = user || DEMO_USERS[0];
+
+  // Phase 34: Maker Template Governance & Immutability Enforcement
+  // Maker enters and edits report values only. Maker cannot change report title,
+  // subtitle, section title, row title, column title, field code, formula definition,
+  // NBE mapping, API endpoint or validation rule.
+  const forbiddenDefinitionKeys = [
+    'title',
+    'name',
+    'subtitle',
+    'templateSnapshot',
+    'reportKey',
+    'formulas',
+    'validationRules',
+    'nbeMapping',
+    'endpointMetadata',
+    'apiEndpoint',
+    'sections',
+    'rows',
+    'columns',
+    'fieldCodes',
+    'fields',
+    'returnItemsList',
+    'dynamicItemsList',
+  ];
+
+  const presentForbidden = forbiddenDefinitionKeys.filter((k) => req.body[k] !== undefined);
+  if (presentForbidden.length > 0 && activeUser.role === 'MAKER') {
+    res.status(403).json({
+      error: `REPORT_DEFINITION_IMMUTABLE: Maker cannot change report definition metadata ('${presentForbidden.join(', ')}'). Only business values and schedule data entry are allowed.`,
+      code: 'REPORT_DEFINITION_IMMUTABLE',
+    });
+    return;
+  }
+
   try {
     const updated = submissionService.updateDraft(
       req.params.id,
@@ -945,17 +1170,60 @@ app.post('/api/regulatory/validate-payload', (req, res) => {
   }
 });
 
-// Maker submit to Checker
+// Phase 36: Server-side query for eligible Checkers for a given report
+app.get('/api/regulatory/reports/:reportKey/eligible-checkers', (req, res) => {
+  const { makerId, department } = req.query;
+  const makerUser = makerId ? userService.getById(String(makerId)) : DEMO_USERS[0];
+  const userSession: UserSession = makerUser
+    ? {
+        id: makerUser.id,
+        name: makerUser.name,
+        email: makerUser.email,
+        role: makerUser.role,
+        institutionCode: makerUser.institutionCode,
+        department: (department as string) || makerUser.department,
+        employeeId: makerUser.employeeId,
+        specialAccessGrants: makerUser.specialAccessGrants || [],
+      }
+    : DEMO_USERS[0];
+
+  try {
+    const eligible = effectiveAccessEngine.getEligibleCheckersForReport(req.params.reportKey, userSession);
+    res.json({
+      reportKey: req.params.reportKey,
+      department: userSession.department,
+      count: eligible.length,
+      checkers: eligible,
+    });
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Maker submit to Checker (Phase 36: supports selectedCheckerIds)
 app.post('/api/regulatory/submissions/:id/submit', (req, res) => {
-  const { user, comment, expectedVersion } = req.body;
+  const { user, comment, expectedVersion, selectedCheckerIds } = req.body;
   const activeUser = user || DEMO_USERS[0];
   try {
     const updated = submissionService.submitToChecker(
       req.params.id,
       activeUser,
       comment,
-      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined,
+      Array.isArray(selectedCheckerIds) ? selectedCheckerIds : undefined
     );
+    res.json(updated);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 36: Checker accepts/opens review
+app.post('/api/regulatory/submissions/:id/accept-review', (req, res) => {
+  const { user } = req.body;
+  const activeUser = user || DEMO_USERS[1];
+  try {
+    const updated = submissionService.acceptReview(req.params.id, activeUser);
     res.json(updated);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
@@ -2398,7 +2666,75 @@ app.post(['/api/audit/reports/export', '/api/v1/audit/reports/export'], (req, re
 
 const DJANGO_SIMULATOR_URL = process.env.NBE_SIMULATOR_URL || 'http://127.0.0.1:8001/api/v1/nbe-simulator';
 
+// Dynamic Report Discovery for NBE Simulator (Phase 32)
+// Discovers all active and draft reports dynamically from SSOT, filtering retired reports
+app.get('/api/nbe-simulator/reports', (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
+  try {
+    const reports = nbeSimulator.getAvailableReports();
+    res.json(reports);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Build canonical simulated payload from active/draft template
+app.get('/api/nbe-simulator/reports/:key/payload', (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
+  try {
+    const versionNum = req.query.version ? parseInt(req.query.version as string, 10) : undefined;
+    const payload = nbeSimulator.buildSimulatedPayload(req.params.key, versionNum);
+    res.json(payload);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Dynamic simulated transmission for any report
+app.post('/api/nbe-simulator/reports/:key/transmit', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.body.role || req.body.actor?.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator transmission is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
+  try {
+    const result = await nbeSimulator.simulateReportTransmission(req.params.key, {
+      customPayload: req.body.payload,
+      scenarioOverride: req.body.scenario,
+      idempotencyKey: req.body.idempotencyKey,
+    });
+    res.status(result.statusCode).json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get('/api/nbe-simulator/submissions', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   const { page, page_size, limit } = req.query as any;
   let submissions: any[] = [];
   try {
@@ -2421,6 +2757,14 @@ app.get('/api/nbe-simulator/submissions', async (req, res) => {
 });
 
 app.get('/api/nbe-simulator/logs', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   const { page, page_size, limit } = req.query as any;
   let logs: any[] = [];
   try {
@@ -2492,6 +2836,14 @@ app.get('/api/nbe-simulator/gateway-health', async (req, res) => {
 });
 
 app.get('/api/nbe-simulator/scenario', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   try {
     const response = await fetch(`${DJANGO_SIMULATOR_URL}/scenario`);
     if (response.ok) {
@@ -2506,6 +2858,14 @@ app.get('/api/nbe-simulator/scenario', async (req, res) => {
 });
 
 app.post('/api/nbe-simulator/scenario', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || req.body?.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   const updatedLocal = nbeSimulator.setScenario(req.body);
   try {
     const response = await fetch(`${DJANGO_SIMULATOR_URL}/scenario`, {
